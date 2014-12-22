@@ -41,9 +41,11 @@ type in4 []struct{}
 type in5 *xxx
 type in6 func([]string)
 type in7 func(bool) (io.Reader, error)
+type in8 struct { foo []byte }
 
 func Foo(x interface{}) {
 	switch x := x.(type) {
+	// in1
 	case map[string]T:
 		var t T // <-- T here
 		for _, v := range x {
@@ -52,6 +54,7 @@ func Foo(x interface{}) {
 		}
 		_ = t
 
+	// in2
 	case map[T]bool:
 		keys := []T{}
 		for k := range x {
@@ -59,6 +62,7 @@ func Foo(x interface{}) {
 		}
 		_ = keys
 
+	// in3
 	case []chan<- T:
 		var t1, t2 T
 		for _, c := range x {
@@ -66,13 +70,20 @@ func Foo(x interface{}) {
 			c <- t2
 		}
 
+	// in4
 	case []T:
 
+	// in5
 	case *T:
 
+	// in6
 	case func(T):
 
+	// in7
 	case func(T) (S, error):
+
+	// in8
+	case struct { foo T }:
 	}
 }
 `
@@ -137,6 +148,10 @@ func Foo(x interface{}) {
 				"in7": {
 					"func(E.T) (E.S, error)",
 					map[string]string{"T": "bool", "S": "io.Reader"},
+				},
+				"in8": {
+					"struct{foo E.T}",
+					map[string]string{"T": "[]byte"},
 				},
 			}
 			for inTypeName, c := range cases {

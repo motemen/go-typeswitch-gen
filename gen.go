@@ -142,7 +142,22 @@ func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
 		return typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Struct:
-		panic("TODO *types.Struct")
+		in, ok := in.(*types.Struct)
+		if !ok {
+			return false
+		}
+
+		if pat.NumFields() != in.NumFields() {
+			return false
+		}
+
+		for i := 0; i < pat.NumFields(); i++ {
+			if !typeMatches(pat.Field(i).Type(), in.Field(i).Type(), m) {
+				return false
+			}
+		}
+
+		return true
 
 	case *types.Tuple:
 		in, ok := in.(*types.Tuple)
