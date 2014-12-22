@@ -1,0 +1,2 @@
+go-typeswitch-gen
+=================
