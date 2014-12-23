@@ -5,8 +5,8 @@ import (
 	"testing"
 
 	"go/ast"
+	"go/format"
 	"go/parser"
-	"go/printer"
 	"go/token"
 
 	"golang.org/x/tools/go/loader"
@@ -169,7 +169,7 @@ func Foo(x interface{}) {
 				tmpl, m := stmt.FindMatchingTemplate(typeDefs[inTypeName])
 				require.NotNil(t, tmpl, inTypeName)
 				require.NotNil(t, m, inTypeName)
-				assert.Equal(t, c.patternType, tmpl.PatternType.String(), inTypeName)
+				assert.Equal(t, c.patternType, tmpl.TypePattern.String(), inTypeName)
 
 				for typeVar, ty := range c.matches {
 					assert.Equal(t, ty, m[typeVar].String(), inTypeName)
@@ -180,12 +180,20 @@ func Foo(x interface{}) {
 			}
 
 			t.Log(showNode(prog.Fset, sw))
+
+			sw_ := stmt.Inflate([]types.Type{
+				typeDefs["in1"],
+				typeDefs["in2"],
+				typeDefs["in3"],
+			})
+
+			t.Log(showNode(prog.Fset, sw_))
 		}
 	}
 }
 
 func showNode(fset *token.FileSet, node interface{}) string {
 	var buf bytes.Buffer
-	printer.Fprint(&buf, fset, node)
+	format.Node(&buf, fset, node)
 	return buf.String()
 }

@@ -15,11 +15,13 @@ type MapT map[interface{}]interface{}
 
 type NumberT float64
 
+// TypeSwitchStmt represents a parsed type switch statement.
 type TypeSwitchStmt struct {
 	Ast       *ast.TypeSwitchStmt
 	Templates []Template
 }
 
+// FindMatchingTemplate find the first matching Template to the input type in and returns the Template and a TypeMatchResult.
 func (stmt TypeSwitchStmt) FindMatchingTemplate(in types.Type) (*Template, TypeMatchResult) {
 	for _, t := range stmt.Templates {
 		if m, ok := t.Matches(in); ok {
@@ -30,10 +32,31 @@ func (stmt TypeSwitchStmt) FindMatchingTemplate(in types.Type) (*Template, TypeM
 	return nil, nil
 }
 
+// Inflate generates a type switch statement with expanded clauses for input types ins.
+func (stmt TypeSwitchStmt) Inflate(ins []types.Type) *ast.TypeSwitchStmt {
+	node := copyNode(stmt.Ast).(*ast.TypeSwitchStmt)
+	for _, in := range ins {
+		t, m := stmt.FindMatchingTemplate(in)
+		if t == nil {
+			// TODO error reporting
+		}
+		clause := t.Apply(m)
+		node.Body.List = append(
+			[]ast.Stmt{clause},
+			node.Body.List...,
+		)
+	}
+
+	return node
+}
+
+// Template represents a clause template.
 type Template struct {
-	Pattern     ast.Expr
-	PatternType types.Type
-	CaseClause  *ast.CaseClause
+	// TypePattern is a type wich type variables e.g. map[string]T, func(T) (S, error).
+	TypePattern types.Type
+
+	// CaseClause is a clause template with type variables.
+	CaseClause *ast.CaseClause
 }
 
 func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
@@ -158,18 +181,29 @@ func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
 	}
 }
 
+// Matches tests whether input type in matches the template's TypePattern and returns a TypeMatchResult.
 func (t *Template) Matches(in types.Type) (TypeMatchResult, bool) {
 	m := TypeMatchResult{}
-	if typeMatches(t.PatternType, in, m) {
+	if typeMatches(t.TypePattern, in, m) {
 		return m, true
 	}
 
 	return nil, false
 }
 
+// Apply applies TypeMatchResult m to the Template's CaseClause and fills the type variables to specific types.
 func (t *Template) Apply(m TypeMatchResult) *ast.CaseClause {
-	cc := apply(t.CaseClause, m)
-	return cc
+	newClause := copyNode(t.CaseClause).(*ast.CaseClause)
+	ast.Inspect(newClause, func(node ast.Node) bool {
+		if ident, ok := node.(*ast.Ident); ok {
+			if r, ok := m[ident.Name]; ok {
+				ident.Name = r.String()
+			}
+		}
+		return true
+	})
+
+	return newClause
 }
 
 func copyExprList(list []ast.Expr) []ast.Expr {
@@ -372,8 +406,7 @@ func parseTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStm
 		}
 
 		tmpl := Template{
-			Pattern:     clause.List[0],
-			PatternType: info.TypeOf(clause.List[0]),
+			TypePattern: info.TypeOf(clause.List[0]),
 			CaseClause:  clause,
 		}
 		templates = append(templates, tmpl)
