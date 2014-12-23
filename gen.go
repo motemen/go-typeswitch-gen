@@ -33,32 +33,7 @@ func (stmt TypeSwitchStmt) FindMatchingTemplate(in types.Type) (*Template, TypeM
 type Template struct {
 	Pattern     ast.Expr
 	PatternType types.Type
-	Body        []ast.Stmt
-	typeParams  map[string][]*ast.Ident
-}
-
-func (t *Template) init() {
-	if t.typeParams != nil {
-		return
-	}
-
-	visit := func(n ast.Node) bool {
-		switch n := n.(type) {
-		case *ast.Ident:
-			if t.typeParams == nil {
-				t.typeParams = map[string][]*ast.Ident{}
-			}
-
-			t.typeParams[n.Name] = append(t.typeParams[n.Name], n)
-		}
-
-		return true
-
-	}
-
-	for _, stmt := range t.Body {
-		ast.Inspect(stmt, visit)
-	}
+	CaseClause  *ast.CaseClause
 }
 
 func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
@@ -192,28 +167,9 @@ func (t *Template) Matches(in types.Type) (TypeMatchResult, bool) {
 	return nil, false
 }
 
-// not goroutine-safe
-func (t *Template) Rewrite(m TypeMatchResult) {
-	t.init()
-
-	for n, ii := range t.typeParams {
-		if r, ok := m[n]; ok {
-			for _, i := range ii {
-				i.Name = r.String()
-			}
-		}
-	}
-}
-
-func (t *Template) Apply(m TypeMatchResult) []ast.Stmt {
-	body := make([]ast.Stmt, len(t.Body))
-	for i, stmt := range t.Body {
-		if newStmt := apply(stmt, m); newStmt != nil {
-			body[i] = newStmt
-		}
-	}
-
-	return body
+func (t *Template) Apply(m TypeMatchResult) *ast.CaseClause {
+	cc := apply(t.CaseClause, m)
+	return cc
 }
 
 func copyExprList(list []ast.Expr) []ast.Expr {
@@ -226,6 +182,44 @@ func copyExprList(list []ast.Expr) []ast.Expr {
 		copied[i] = copyNode(expr).(ast.Expr)
 	}
 	return copied
+}
+
+func copyStmtList(list []ast.Stmt) []ast.Stmt {
+	if list == nil {
+		return nil
+	}
+
+	copied := make([]ast.Stmt, len(list))
+	for i, stmt := range list {
+		copied[i] = copyNode(stmt).(ast.Stmt)
+	}
+	return copied
+}
+
+func copyFieldList(fl *ast.FieldList) *ast.FieldList {
+	if fl == nil {
+		return nil
+	}
+
+	copied := *fl
+
+	if fl.List != nil {
+		copiedList := make([]*ast.Field, len(fl.List))
+		for i, f := range fl.List {
+			field := *f
+			field.Names = make([]*ast.Ident, len(f.Names))
+			for i, name := range f.Names {
+				copiedName := *name
+				field.Names[i] = &copiedName
+			}
+			field.Type = copyNode(f.Type).(ast.Expr)
+			copiedList[i] = &field
+		}
+
+		copied.List = copiedList
+	}
+
+	return &copied
 }
 
 func copyNode(node ast.Node) ast.Node {
@@ -317,14 +311,42 @@ func copyNode(node ast.Node) ast.Node {
 		copied.Value = copyNode(node.Value).(ast.Expr)
 		return &copied
 
+	case *ast.CaseClause:
+		copied := *node
+		copied.List = copyExprList(node.List)
+		copied.Body = copyStmtList(node.Body)
+		return &copied
+
+	case *ast.MapType:
+		copied := *node
+		copied.Key = copyNode(node.Key).(ast.Expr)
+		copied.Value = copyNode(node.Value).(ast.Expr)
+		return &copied
+
+	case *ast.ChanType:
+		copied := *node
+		copied.Value = copyNode(node.Value).(ast.Expr)
+		return &copied
+
+	case *ast.FuncType:
+		copied := *node
+		copied.Params = copyFieldList(node.Params)
+		copied.Results = copyFieldList(node.Results)
+		return &copied
+
+	case *ast.StructType:
+		copied := *node
+		copied.Fields = copyFieldList(node.Fields)
+		return &copied
+
 	default:
 		fmt.Printf("copyNode: unexpected node type %T\n", node)
 		return node
 	}
 }
 
-func apply(node ast.Stmt, m TypeMatchResult) ast.Stmt {
-	n := copyNode(node).(ast.Stmt)
+func apply(node *ast.CaseClause, m TypeMatchResult) *ast.CaseClause {
+	n := copyNode(node).(*ast.CaseClause)
 	ast.Inspect(n, func(n ast.Node) bool {
 		if ident, ok := n.(*ast.Ident); ok {
 			if r, ok := m[ident.Name]; ok {
@@ -352,7 +374,7 @@ func parseTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStm
 		tmpl := Template{
 			Pattern:     clause.List[0],
 			PatternType: info.TypeOf(clause.List[0]),
-			Body:        clause.Body,
+			CaseClause:  clause,
 		}
 		templates = append(templates, tmpl)
 	}
