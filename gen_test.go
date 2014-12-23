@@ -10,6 +10,8 @@ import (
 	"go/token"
 
 	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/pointer"
+	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types"
 
 	"github.com/stretchr/testify/assert"
@@ -42,6 +44,9 @@ type in5 *xxx
 type in6 func(int)
 type in7 func(bool) (io.Reader, error)
 type in8 struct { foo []byte }
+
+func main() {
+}
 
 func Foo(x interface{}) {
 	switch x := x.(type) {
@@ -100,6 +105,7 @@ func Foo(x interface{}) {
 
 	conf := loader.Config{}
 	conf.ParserMode = parser.ParseComments
+	conf.SourceImports = true
 
 	file, err := conf.ParseFile("test.go", code)
 	require.NoError(t, err)
@@ -154,6 +160,25 @@ func Foo(x interface{}) {
 			},
 		}
 
+		mode := ssa.SanityCheckFunctions
+		ssaProg := ssa.Create(prog, mode)
+		ssaPkg := ssaProg.Package(pkg.Pkg)
+		ssaProg.BuildAll()
+		for _, file := range pkg.Files {
+			for _, decl := range file.Decls {
+				if fd, ok := decl.(*ast.FuncDecl); ok {
+					_, path, _ := prog.PathEnclosingInterval(fd.Pos(), fd.End())
+					f := ssa.EnclosingFunction(ssaPkg, path)
+					conf := &pointer.Config{}
+					conf.BuildCallGraph = true
+					conf.Mains = []*ssa.Package{ssaPkg}
+					res, err := pointer.Analyze(conf)
+					t.Log(res, err)
+					in := res.CallGraph.CreateNode(f).In
+					t.Log(in)
+				}
+			}
+		}
 		for node := range pkg.Scopes {
 			sw, ok := node.(*ast.TypeSwitchStmt)
 			if !ok {
@@ -178,8 +203,6 @@ func Foo(x interface{}) {
 				newBody := tmpl.Apply(m)
 				t.Log(showNode(prog.Fset, newBody))
 			}
-
-			t.Log(showNode(prog.Fset, sw))
 
 			sw_ := stmt.Inflate([]types.Type{
 				typeDefs["in1"],
