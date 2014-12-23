@@ -46,6 +46,10 @@ type in7 func(bool) (io.Reader, error)
 type in8 struct { foo []byte }
 
 func main() {
+	Foo(map[string][]io.Reader{})
+	Foo(map[int]bool{})
+	Foo(make([]chan<- *xxx, 0))
+	Foo([]struct{}{})
 }
 
 func Foo(x interface{}) {
@@ -167,14 +171,27 @@ func Foo(x interface{}) {
 		for _, file := range pkg.Files {
 			for _, decl := range file.Decls {
 				if fd, ok := decl.(*ast.FuncDecl); ok {
+					if fd.Name.Name != "Foo" {
+						continue
+					}
+
 					_, path, _ := prog.PathEnclosingInterval(fd.Pos(), fd.End())
 					f := ssa.EnclosingFunction(ssaPkg, path)
 					conf := &pointer.Config{}
 					conf.BuildCallGraph = true
 					conf.Mains = []*ssa.Package{ssaPkg}
 					res, err := pointer.Analyze(conf)
-					t.Log(res, err)
+					require.NoError(t, err)
+
 					in := res.CallGraph.CreateNode(f).In
+					for _, edge := range in {
+						for _, a := range edge.Site.Common().Args {
+							t.Logf("%#v", a)
+							if mi, ok := a.(*ssa.MakeInterface); ok {
+								t.Log(mi.X.Type())
+							}
+						}
+					}
 					t.Log(in)
 				}
 			}
