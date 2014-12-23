@@ -205,6 +205,138 @@ func (t *Template) Rewrite(m TypeMatchResult) {
 	}
 }
 
+func (t *Template) Apply(m TypeMatchResult) []ast.Stmt {
+	body := make([]ast.Stmt, len(t.Body))
+	for i, stmt := range t.Body {
+		if newStmt := apply(stmt, m); newStmt != nil {
+			body[i] = newStmt
+		}
+	}
+
+	return body
+}
+
+func copyExprList(list []ast.Expr) []ast.Expr {
+	if list == nil {
+		return nil
+	}
+
+	copied := make([]ast.Expr, len(list))
+	for i, expr := range list {
+		copied[i] = copyNode(expr).(ast.Expr)
+	}
+	return copied
+}
+
+func copyNode(node ast.Node) ast.Node {
+	if node == nil {
+		return nil
+	}
+
+	switch node := node.(type) {
+	case *ast.DeclStmt:
+		copied := *node // copy
+		copied.Decl = copyNode(node.Decl).(ast.Decl)
+		return &copied
+
+	case *ast.GenDecl:
+		copied := *node
+		copiedSpecs := make([]ast.Spec, len(node.Specs))
+		for i, spec := range node.Specs {
+			copiedSpecs[i] = copyNode(spec).(ast.Spec)
+		}
+		copied.Specs = copiedSpecs
+		return &copied
+
+	case *ast.ValueSpec:
+		copied := *node
+		copied.Type = copyNode(node.Type).(ast.Expr)
+		copied.Values = copyExprList(node.Values)
+		return &copied
+
+	case *ast.ArrayType:
+		copied := *node
+		copied.Elt = copyNode(node.Elt).(ast.Expr)
+		return &copied
+
+	case *ast.CallExpr:
+		copied := *node
+		copied.Args = copyExprList(node.Args)
+		copied.Fun = copyNode(node.Fun).(ast.Expr)
+		return &copied
+
+	case *ast.Ident:
+		copied := *node
+		return &copied
+
+	case *ast.IndexExpr:
+		copied := *node
+		return &copied
+
+	case *ast.RangeStmt:
+		copied := *node
+		copied.Body = copyNode(node.Body).(*ast.BlockStmt)
+		return &copied
+
+	case *ast.AssignStmt:
+		copied := *node
+		copied.Lhs = copyExprList(node.Lhs)
+		copied.Rhs = copyExprList(node.Rhs)
+		return &copied
+
+	case *ast.StarExpr:
+		copied := *node
+		copied.X = copyNode(node.X).(ast.Expr)
+		return &copied
+
+	case *ast.ExprStmt:
+		copied := *node
+		copied.X = copyNode(node.X).(ast.Expr)
+		return &copied
+
+	case *ast.SelectorExpr:
+		copied := *node
+		copied.X = copyNode(node.X).(ast.Expr)
+		return &copied
+
+	case *ast.BlockStmt:
+		copied := *node
+		copiedList := make([]ast.Stmt, len(node.List))
+		for i, stmt := range node.List {
+			copiedList[i] = copyNode(stmt).(ast.Stmt)
+		}
+		copied.List = copiedList
+		return &copied
+
+	case *ast.BasicLit:
+		return node
+
+	case *ast.SendStmt:
+		copied := *node
+		copied.Chan = copyNode(node.Chan).(ast.Expr)
+		copied.Value = copyNode(node.Value).(ast.Expr)
+		return &copied
+
+	default:
+		fmt.Printf("copyNode: unexpected node type %T\n", node)
+		return node
+	}
+}
+
+func apply(node ast.Stmt, m TypeMatchResult) ast.Stmt {
+	n := copyNode(node).(ast.Stmt)
+	ast.Inspect(n, func(n ast.Node) bool {
+		if ident, ok := n.(*ast.Ident); ok {
+			if r, ok := m[ident.Name]; ok {
+				ident.Name = r.String()
+			}
+		}
+		return true
+	})
+
+	return n
+}
+
 type TypeMatchResult map[string]types.Type
 
 func parseTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt {
