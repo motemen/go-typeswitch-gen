@@ -185,6 +185,11 @@ func Foo(x interface{}) {
 				typeDefs["in1"],
 				typeDefs["in2"],
 				typeDefs["in3"],
+				typeDefs["in4"],
+				typeDefs["in5"],
+				typeDefs["in6"],
+				typeDefs["in7"],
+				typeDefs["in8"],
 			})
 
 			t.Log(showNode(prog.Fset, sw_))
