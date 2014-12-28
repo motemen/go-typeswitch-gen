@@ -4,21 +4,153 @@ import (
 	"fmt"
 
 	"go/ast"
+	"golang.org/x/tools/go/loader"
+	"golang.org/x/tools/go/pointer"
+	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types"
 )
 
-type T interface{}
+func HandleProg(prog *loader.Program) {
+	for _, pkgInfo := range prog.Created {
+		mode := ssa.SanityCheckFunctions
+		ssaProg := ssa.Create(prog, mode)
+		ssaProg.BuildAll()
 
-type SliceT []interface{}
+		ssaPkg := ssaProg.Package(pkgInfo.Pkg)
 
-type MapT map[interface{}]interface{}
+		info := pkgInfo.Info
+		for ident, obj := range pkgInfo.Defs {
+			fn, ok := obj.(*types.Func)
+			if !ok {
+				continue
+			}
 
-type NumberT float64
+			_, path, _ := prog.PathEnclosingInterval(obj.Pos(), obj.Pos())
+
+			var fd *ast.FuncDecl
+			for _, node := range path {
+				var ok bool
+				if fd, ok = node.(*ast.FuncDecl); ok {
+					break
+				}
+			}
+
+			fmt.Printf("%#v fn=%#v fd=%#v\n", ident.Name, fn, fd)
+
+			conf := &pointer.Config{}
+			conf.BuildCallGraph = true
+			conf.Mains = []*ssa.Package{ssaPkg}
+
+			ptAnalysis, err := pointer.Analyze(conf)
+			if err != nil {
+				panic(err)
+			}
+
+			ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+			in := ptAnalysis.CallGraph.CreateNode(ssaFn).In
+
+			for _, edge := range in {
+				site := edge.Site
+				if site == nil {
+					continue
+				}
+
+				for _, a := range site.Common().Args {
+					fmt.Println(a)
+					if mi, ok := a.(*ssa.MakeInterface); ok {
+						fmt.Println(mi.X.Type())
+					}
+				}
+			}
+		}
+
+		for _, file := range pkgInfo.Files {
+			for _, decl := range file.Decls {
+				fd, ok := decl.(*ast.FuncDecl)
+				if !ok {
+					continue
+				}
+
+				for _, stmt := range fd.Body.List {
+					sw, ok := stmt.(*ast.TypeSwitchStmt)
+					if !ok {
+						continue
+					}
+
+					scope := pkgInfo.Scopes[sw]
+					// XXX only accept `switch x := y.(type)` form
+					x := sw.Assign.(*ast.AssignStmt).Rhs[0].(*ast.TypeAssertExpr).X.(*ast.Ident)
+					// XXX parentScope must be of a func
+					parentScope, o := scope.LookupParent(x.Name)
+					fmt.Printf("%#v ~~> %#v %v\n", x, o, parentScope)
+
+					var outerFunc *ast.FuncType
+					for node, s := range pkgInfo.Scopes {
+						if s == parentScope {
+							fmt.Printf("parentnode %#v\n", node)
+							outerFunc = node.(*ast.FuncType)
+							break
+						}
+					}
+
+					var pos int
+					var found bool
+					for _, p := range outerFunc.Params.List {
+						for _, n := range p.Names {
+							if n.Name == x.Name {
+								found = true
+								break
+							}
+							pos = pos + 1
+						}
+					}
+					fmt.Printf("%v, %v = %v th\n", found, x.Name, pos)
+
+					// ここで y に対応する func arg の index を見つけて callgraph.In とつきあわせ、どんなインスタンスがあるか知りたい
+
+					stmt := NewTypeSwitchStmt(sw, info)
+					if stmt == nil {
+						continue
+					}
+				}
+			}
+		}
+	}
+}
 
 // TypeSwitchStmt represents a parsed type switch statement.
 type TypeSwitchStmt struct {
 	Ast       *ast.TypeSwitchStmt
 	Templates []Template
+}
+
+type TypeMatchResult map[string]types.Type
+
+func NewTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt {
+	templates := []Template{}
+
+	for _, clause := range st.Body.List {
+		clause := clause.(*ast.CaseClause) // must not fail
+
+		if len(clause.List) != 1 { // XXX should/can we support multiple patterns?
+			continue
+		}
+
+		tmpl := Template{
+			TypePattern: info.TypeOf(clause.List[0]),
+			CaseClause:  clause,
+		}
+		templates = append(templates, tmpl)
+	}
+
+	if len(templates) == 0 {
+		return nil
+	}
+
+	return &TypeSwitchStmt{
+		Ast:       st,
+		Templates: templates,
+	}
 }
 
 // FindMatchingTemplate find the first matching Template to the input type in and returns the Template and a TypeMatchResult.
@@ -59,6 +191,17 @@ type Template struct {
 	CaseClause *ast.CaseClause
 }
 
+// Matches tests whether input type in matches the template's TypePattern and returns a TypeMatchResult.
+func (t *Template) Matches(in types.Type) (TypeMatchResult, bool) {
+	m := TypeMatchResult{}
+	if typeMatches(t.TypePattern, in, m) {
+		return m, true
+	}
+
+	return nil, false
+}
+
+// typeMatches is a helper function for Matches.
 func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
 	switch pat := pat.(type) {
 	case *types.Array:
@@ -181,16 +324,6 @@ func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
 	}
 }
 
-// Matches tests whether input type in matches the template's TypePattern and returns a TypeMatchResult.
-func (t *Template) Matches(in types.Type) (TypeMatchResult, bool) {
-	m := TypeMatchResult{}
-	if typeMatches(t.TypePattern, in, m) {
-		return m, true
-	}
-
-	return nil, false
-}
-
 // Apply applies TypeMatchResult m to the Template's CaseClause and fills the type variables to specific types.
 func (t *Template) Apply(m TypeMatchResult) *ast.CaseClause {
 	newClause := copyNode(t.CaseClause).(*ast.CaseClause)
@@ -256,6 +389,7 @@ func copyFieldList(fl *ast.FieldList) *ast.FieldList {
 	return &copied
 }
 
+// copyNode deep copies an ast.Node node.
 func copyNode(node ast.Node) ast.Node {
 	if node == nil {
 		return nil
@@ -329,11 +463,7 @@ func copyNode(node ast.Node) ast.Node {
 
 	case *ast.BlockStmt:
 		copied := *node
-		copiedList := make([]ast.Stmt, len(node.List))
-		for i, stmt := range node.List {
-			copiedList[i] = copyNode(stmt).(ast.Stmt)
-		}
-		copied.List = copiedList
+		copied.List = copyStmtList(node.List)
 		return &copied
 
 	case *ast.BasicLit:
@@ -376,48 +506,5 @@ func copyNode(node ast.Node) ast.Node {
 	default:
 		fmt.Printf("copyNode: unexpected node type %T\n", node)
 		return node
-	}
-}
-
-func apply(node *ast.CaseClause, m TypeMatchResult) *ast.CaseClause {
-	n := copyNode(node).(*ast.CaseClause)
-	ast.Inspect(n, func(n ast.Node) bool {
-		if ident, ok := n.(*ast.Ident); ok {
-			if r, ok := m[ident.Name]; ok {
-				ident.Name = r.String()
-			}
-		}
-		return true
-	})
-
-	return n
-}
-
-type TypeMatchResult map[string]types.Type
-
-func parseTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt {
-	templates := []Template{}
-
-	for _, clause := range st.Body.List {
-		clause := clause.(*ast.CaseClause) // must not fail
-
-		if len(clause.List) != 1 { // XXX should/can we support multiple patterns?
-			continue
-		}
-
-		tmpl := Template{
-			TypePattern: info.TypeOf(clause.List[0]),
-			CaseClause:  clause,
-		}
-		templates = append(templates, tmpl)
-	}
-
-	if len(templates) == 0 {
-		return nil
-	}
-
-	return &TypeSwitchStmt{
-		Ast:       st,
-		Templates: templates,
 	}
 }

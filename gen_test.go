@@ -202,7 +202,7 @@ func Foo(x interface{}) {
 				continue
 			}
 
-			stmt := parseTypeSwitchStmt(sw, pkg.Info)
+			stmt := NewTypeSwitchStmt(sw, pkg.Info)
 			if stmt == nil {
 				continue
 			}
