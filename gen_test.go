@@ -1,13 +1,10 @@
 package gen
 
 import (
-	"bytes"
 	"testing"
 
 	"go/ast"
-	"go/format"
 	"go/parser"
-	"go/token"
 
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/pointer"
@@ -235,10 +232,4 @@ func Foo(x interface{}) {
 			t.Log(showNode(prog.Fset, sw_))
 		}
 	}
-}
-
-func showNode(fset *token.FileSet, node interface{}) string {
-	var buf bytes.Buffer
-	format.Node(&buf, fset, node)
-	return buf.String()
 }

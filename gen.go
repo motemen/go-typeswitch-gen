@@ -8,6 +8,7 @@ import (
 	"go/format"
 	"go/token"
 	"golang.org/x/tools/astutil"
+	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/pointer"
 	"golang.org/x/tools/go/ssa"
@@ -20,139 +21,105 @@ func showNode(fset *token.FileSet, node interface{}) string {
 	return buf.String()
 }
 
-func HandleProg(prog *loader.Program) {
-	for _, pkgInfo := range prog.Created {
-		mode := ssa.SanityCheckFunctions
-		ssaProg := ssa.Create(prog, mode)
-		ssaProg.BuildAll()
+func callGraphInEdges(ssaPkg *ssa.Package, file *ast.File, funcDecl *ast.FuncDecl) []*callgraph.Edge {
+	conf := &pointer.Config{}
+	conf.BuildCallGraph = true
+	conf.Mains = []*ssa.Package{ssaPkg}
 
-		ssaPkg := ssaProg.Package(pkgInfo.Pkg)
+	ptAnalysis, err := pointer.Analyze(conf)
+	if err != nil {
+		panic(err)
+	}
 
-		info := pkgInfo.Info
-		for ident, obj := range pkgInfo.Defs {
-			fn, ok := obj.(*types.Func)
+	path, _ := astutil.PathEnclosingInterval(file, funcDecl.Pos(), funcDecl.End())
+	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+
+	return ptAnalysis.CallGraph.CreateNode(ssaFn).In
+}
+
+func namedParamPos(name string, list *ast.FieldList) int {
+	var pos int
+	for _, f := range list.List {
+		for _, n := range f.Names {
+			if n.Name == name {
+				return pos
+			}
+			pos = pos + 1
+		}
+	}
+
+	return -1
+}
+
+func aggregateConcreteArgTypes(pos int, edges []*callgraph.Edge) []types.Type {
+	inTypes := []types.Type{}
+
+	for _, edge := range edges {
+		site := edge.Site
+		if site == nil {
+			continue
+		}
+
+		a := site.Common().Args[pos]
+		if mi, ok := a.(*ssa.MakeInterface); ok {
+			inTypes = append(inTypes, mi.X.Type())
+		}
+	}
+
+	return inTypes
+}
+
+func RewriteFile(ssaPkg *ssa.Package, pkgInfo *loader.PackageInfo, file *ast.File) {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+
+		funcType := funcDecl.Type
+
+		// for each type switch statements...
+		for _, stmt := range funcDecl.Body.List {
+			sw, ok := stmt.(*ast.TypeSwitchStmt)
 			if !ok {
 				continue
 			}
 
-			_, path, _ := prog.PathEnclosingInterval(obj.Pos(), obj.Pos())
+			// XXX only accept `switch y := x.(type)` form
+			x := sw.Assign.(*ast.AssignStmt).Rhs[0].(*ast.TypeAssertExpr).X.(*ast.Ident)
 
-			var fd *ast.FuncDecl
-			for _, node := range path {
-				var ok bool
-				if fd, ok = node.(*ast.FuncDecl); ok {
-					break
-				}
+			// TODO check x is an interface{}
+
+			// scope := pkgInfo.Scopes[sw]
+			// XXX parentScope must be of a func
+			// parentScope, _ := scope.LookupParent(x.Name)
+			// assert(pkgInfo.Scopes[funcType] == parentScope)
+
+			// argument index of the variable which is target of the type switch
+			pos := namedParamPos(x.Name, funcType.Params)
+			in := callGraphInEdges(ssaPkg, file, funcDecl)
+			inTypes := aggregateConcreteArgTypes(pos, in)
+
+			stmt := NewTypeSwitchStmt(sw, pkgInfo.Info)
+			if stmt == nil {
+				continue
 			}
 
-			fmt.Printf("%#v fn=%#v fd=%#v\n", ident.Name, fn, fd)
-
-			conf := &pointer.Config{}
-			conf.BuildCallGraph = true
-			conf.Mains = []*ssa.Package{ssaPkg}
-
-			ptAnalysis, err := pointer.Analyze(conf)
-			if err != nil {
-				panic(err)
-			}
-
-			ssaFn := ssa.EnclosingFunction(ssaPkg, path)
-			in := ptAnalysis.CallGraph.CreateNode(ssaFn).In
-
-			for _, edge := range in {
-				site := edge.Site
-				if site == nil {
-					continue
-				}
-
-				for _, a := range site.Common().Args {
-					fmt.Println(a)
-					if mi, ok := a.(*ssa.MakeInterface); ok {
-						fmt.Println(mi.X.Type())
-					}
-				}
-			}
+			*sw = *stmt.Inflate(inTypes)
 		}
+	}
+}
+
+func RewriteProg(prog *loader.Program) {
+	mode := ssa.SanityCheckFunctions
+	ssaProg := ssa.Create(prog, mode)
+	ssaProg.BuildAll()
+
+	for _, pkgInfo := range prog.Created {
+		ssaPkg := ssaProg.Package(pkgInfo.Pkg)
 
 		for _, file := range pkgInfo.Files {
-			// for each func decls...
-			for _, decl := range file.Decls {
-				fd, ok := decl.(*ast.FuncDecl)
-				if !ok {
-					continue
-				}
-
-				// for each type switch statements...
-				for _, stmt := range fd.Body.List {
-					sw, ok := stmt.(*ast.TypeSwitchStmt)
-					if !ok {
-						continue
-					}
-
-					scope := pkgInfo.Scopes[sw]
-					// XXX only accept `switch x := y.(type)` form
-					x := sw.Assign.(*ast.AssignStmt).Rhs[0].(*ast.TypeAssertExpr).X.(*ast.Ident)
-					// XXX parentScope must be of a func
-					parentScope, o := scope.LookupParent(x.Name)
-					fmt.Printf("%#v ~~> %#v %v\n", x, o, parentScope)
-
-					outerFunc := fd.Type
-					// assert(pkgInfo.Scopes[outerFunc] == parentScope)
-
-					// argument index of the variable which is target of the type switch
-					var pos int
-					for _, p := range outerFunc.Params.List {
-						for _, n := range p.Names {
-							if n.Name == x.Name {
-								break
-							}
-							pos = pos + 1
-						}
-					}
-					found := (pos < len(outerFunc.Params.List))
-					fmt.Printf("%v, %v = %v th\n", found, x.Name, pos)
-
-					// ここで y に対応する func arg の index を見つけて callgraph.In とつきあわせ、どんなインスタンスがあるか知りたい
-
-					conf := &pointer.Config{}
-					conf.BuildCallGraph = true
-					conf.Mains = []*ssa.Package{ssaPkg}
-
-					ptAnalysis, err := pointer.Analyze(conf)
-					if err != nil {
-						panic(err)
-					}
-
-					path, _ := astutil.PathEnclosingInterval(file, fd.Pos(), fd.End())
-					ssaFn := ssa.EnclosingFunction(ssaPkg, path)
-
-					in := ptAnalysis.CallGraph.CreateNode(ssaFn).In
-
-					inTypes := []types.Type{}
-					for _, edge := range in {
-						site := edge.Site
-						if site == nil {
-							continue
-						}
-
-						for _, a := range site.Common().Args {
-							fmt.Println(a)
-							if mi, ok := a.(*ssa.MakeInterface); ok {
-								fmt.Println(mi.X.Type())
-								inTypes = append(inTypes, mi.X.Type())
-							}
-						}
-					}
-
-					stmt := NewTypeSwitchStmt(sw, info)
-					if stmt == nil {
-						continue
-					}
-
-					newStmt := stmt.Inflate(inTypes)
-					fmt.Println(showNode(prog.Fset, newStmt))
-				}
-			}
+			RewriteFile(ssaPkg, pkgInfo, file)
 		}
 	}
 }
