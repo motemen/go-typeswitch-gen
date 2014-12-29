@@ -1,14 +1,24 @@
 package gen
 
 import (
+	"bytes"
 	"fmt"
 
 	"go/ast"
+	"go/format"
+	"go/token"
+	"golang.org/x/tools/astutil"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/pointer"
 	"golang.org/x/tools/go/ssa"
 	"golang.org/x/tools/go/types"
 )
+
+func showNode(fset *token.FileSet, node interface{}) string {
+	var buf bytes.Buffer
+	format.Node(&buf, fset, node)
+	return buf.String()
+}
 
 func HandleProg(prog *loader.Program) {
 	for _, pkgInfo := range prog.Created {
@@ -65,12 +75,14 @@ func HandleProg(prog *loader.Program) {
 		}
 
 		for _, file := range pkgInfo.Files {
+			// for each func decls...
 			for _, decl := range file.Decls {
 				fd, ok := decl.(*ast.FuncDecl)
 				if !ok {
 					continue
 				}
 
+				// for each type switch statements...
 				for _, stmt := range fd.Body.List {
 					sw, ok := stmt.(*ast.TypeSwitchStmt)
 					if !ok {
@@ -84,34 +96,61 @@ func HandleProg(prog *loader.Program) {
 					parentScope, o := scope.LookupParent(x.Name)
 					fmt.Printf("%#v ~~> %#v %v\n", x, o, parentScope)
 
-					var outerFunc *ast.FuncType
-					for node, s := range pkgInfo.Scopes {
-						if s == parentScope {
-							fmt.Printf("parentnode %#v\n", node)
-							outerFunc = node.(*ast.FuncType)
-							break
-						}
-					}
+					outerFunc := fd.Type
+					// assert(pkgInfo.Scopes[outerFunc] == parentScope)
 
+					// argument index of the variable which is target of the type switch
 					var pos int
-					var found bool
 					for _, p := range outerFunc.Params.List {
 						for _, n := range p.Names {
 							if n.Name == x.Name {
-								found = true
 								break
 							}
 							pos = pos + 1
 						}
 					}
+					found := (pos < len(outerFunc.Params.List))
 					fmt.Printf("%v, %v = %v th\n", found, x.Name, pos)
 
 					// ここで y に対応する func arg の index を見つけて callgraph.In とつきあわせ、どんなインスタンスがあるか知りたい
+
+					conf := &pointer.Config{}
+					conf.BuildCallGraph = true
+					conf.Mains = []*ssa.Package{ssaPkg}
+
+					ptAnalysis, err := pointer.Analyze(conf)
+					if err != nil {
+						panic(err)
+					}
+
+					path, _ := astutil.PathEnclosingInterval(file, fd.Pos(), fd.End())
+					ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+
+					in := ptAnalysis.CallGraph.CreateNode(ssaFn).In
+
+					inTypes := []types.Type{}
+					for _, edge := range in {
+						site := edge.Site
+						if site == nil {
+							continue
+						}
+
+						for _, a := range site.Common().Args {
+							fmt.Println(a)
+							if mi, ok := a.(*ssa.MakeInterface); ok {
+								fmt.Println(mi.X.Type())
+								inTypes = append(inTypes, mi.X.Type())
+							}
+						}
+					}
 
 					stmt := NewTypeSwitchStmt(sw, info)
 					if stmt == nil {
 						continue
 					}
+
+					newStmt := stmt.Inflate(inTypes)
+					fmt.Println(showNode(prog.Fset, newStmt))
 				}
 			}
 		}
