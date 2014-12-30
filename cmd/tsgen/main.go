@@ -4,54 +4,75 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"io"
+	"io/ioutil"
 	"os"
+	"path/filepath"
+	"strings"
 
+	"go/ast"
+	"go/build"
 	"go/format"
-	"go/parser"
 	"go/token"
-	"golang.org/x/tools/go/loader"
 
 	"github.com/motemen/go-typeswitch-gen"
 )
 
 func dieIf(err error, message ...string) {
 	if err != nil {
-		fmt.Println(message, err)
+		msg := err.Error()
+		if len(message) > 0 {
+			msg = strings.Join(message, " ") + ": " + msg
+		}
+
+		fmt.Println(msg)
 		os.Exit(1)
 	}
 }
 
 // tsgen [-func <funcname>] <file>
 func main() {
-	// g := gen.Gen{}
-	// args, err := g.FromArgs(os.Args[1:], false)
-	// dieIf(err)
+	g := gen.Gen{}
 
-	// flag.StringVar(&g.FuncName, "func", "", "template func name")
-	// err = flag.CommandLine.Parse(args)
-	// dieIf(err)
+	flag.StringVar(&g.FuncName, "func", "", "template func name")
+	flag.Parse()
 
-	// err = g.Rewrite(funcName)
-	// dieIf(err)
+	targetFilename := flag.Arg(0)
 
-	conf := loader.Config{}
-	conf.ParserMode = parser.ParseComments
-	conf.SourceImports = true
+	var err error
 
-	args, err := conf.FromArgs(os.Args[1:], false)
-	dieIf(err, "conf.FromArgs")
-
-	_ = flag.String("func", "", "template func name")
-
-	err = flag.CommandLine.Parse(args)
+	dir := filepath.Dir(targetFilename)
+	entries, err := ioutil.ReadDir(dir)
 	dieIf(err)
 
-	prog, err := conf.Load()
-	dieIf(err, "conf.Load")
+	filenames := []string{}
+	for _, fi := range entries {
+		match, err := build.Default.MatchFile(dir, fi.Name())
+		dieIf(err)
 
-	gen.RewriteProg(prog)
+		if match {
+			filenames = append(filenames, filepath.Join(dir, fi.Name()))
+		}
+	}
 
-	fmt.Println(showNode(prog.Fset, prog.Created[0].Files[0]))
+	err = g.CreateFromFilenames("", filenames...)
+	dieIf(err, "g.CreateFromFilenames")
+
+	g.Target = func(fset *token.FileSet, file *ast.File) io.Writer {
+		if filepath.Clean(fset.File(file.Pos()).Name()) == filepath.Clean(targetFilename) {
+			return os.Stdout
+		}
+
+		return nil
+	}
+
+	err = g.RewriteFiles(filenames)
+	dieIf(err)
+
+	//for filename, astFile := range g.Files {
+	//}
+
+	//fmt.Println(showNode(g.Prog.Fset, g.Prog.Created[0].Files[0]))
 }
 
 func showNode(fset *token.FileSet, node interface{}) string {

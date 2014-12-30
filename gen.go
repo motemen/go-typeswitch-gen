@@ -1,8 +1,8 @@
 package gen
 
 import (
-	"bytes"
 	"fmt"
+	"io"
 
 	"go/ast"
 	"go/format"
@@ -15,10 +15,45 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
-func showNode(fset *token.FileSet, node interface{}) string {
-	var buf bytes.Buffer
-	format.Node(&buf, fset, node)
-	return buf.String()
+type Gen struct {
+	loader.Config
+	FuncName string
+	Prog     *loader.Program
+	Files    map[string]*ast.File
+	Target   func(*token.FileSet, *ast.File) io.Writer
+
+	ssaProg *ssa.Program
+}
+
+func (g *Gen) RewriteFiles(filenames []string) error {
+	if err := g.CreateFromFilenames("", filenames...); err != nil {
+		return err
+	}
+
+	if err := g.initProg(); err != nil {
+		return err
+	}
+
+	return g.rewriteProg()
+}
+
+func (g *Gen) initProg() error {
+	var err error
+	g.Config.SourceImports = true
+	g.Prog, err = g.Config.Load()
+	if err != nil {
+		return err
+	}
+
+	mode := ssa.SanityCheckFunctions
+	g.ssaProg = ssa.Create(g.Prog, mode)
+	g.ssaProg.BuildAll()
+
+	return nil
+}
+
+func (g *Gen) WriteNode(w io.Writer, node interface{}) error {
+	return format.Node(w, g.Fset, node)
 }
 
 func callGraphInEdges(ssaPkg *ssa.Package, file *ast.File, funcDecl *ast.FuncDecl) []*callgraph.Edge {
@@ -69,7 +104,7 @@ func aggregateConcreteArgTypes(pos int, edges []*callgraph.Edge) []types.Type {
 	return inTypes
 }
 
-func RewriteFile(ssaPkg *ssa.Package, pkgInfo *loader.PackageInfo, file *ast.File) {
+func (g *Gen) rewriteFile(ssaPkg *ssa.Package, pkgInfo *loader.PackageInfo, file *ast.File) error {
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -108,20 +143,26 @@ func RewriteFile(ssaPkg *ssa.Package, pkgInfo *loader.PackageInfo, file *ast.Fil
 			*sw = *stmt.Inflate(inTypes)
 		}
 	}
+
+	return nil
 }
 
-func RewriteProg(prog *loader.Program) {
-	mode := ssa.SanityCheckFunctions
-	ssaProg := ssa.Create(prog, mode)
-	ssaProg.BuildAll()
-
-	for _, pkgInfo := range prog.Created {
-		ssaPkg := ssaProg.Package(pkgInfo.Pkg)
+func (g *Gen) rewriteProg() error {
+	for _, pkgInfo := range g.Prog.Created {
+		ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
 
 		for _, file := range pkgInfo.Files {
-			RewriteFile(ssaPkg, pkgInfo, file)
+			if out := g.Target(g.Fset, file); out != nil {
+				if err := g.rewriteFile(ssaPkg, pkgInfo, file); err != nil {
+					return err
+				}
+
+				g.WriteNode(out, file)
+			}
 		}
 	}
+
+	return nil
 }
 
 // TypeSwitchStmt represents a parsed type switch statement.
