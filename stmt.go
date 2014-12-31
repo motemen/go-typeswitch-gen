@@ -10,13 +10,15 @@ import (
 
 // TypeSwitchStmt represents a parsed type switch statement.
 type TypeSwitchStmt struct {
+	gen       *Gen
+	file      *ast.File
 	Ast       *ast.TypeSwitchStmt
 	Templates []Template
 }
 
 type TypeMatchResult map[string]types.Type
 
-func NewTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt {
+func NewTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt {
 	templates := []Template{}
 
 	for _, clause := range st.Body.List {
@@ -38,6 +40,8 @@ func NewTypeSwitchStmt(st *ast.TypeSwitchStmt, info types.Info) *TypeSwitchStmt 
 	}
 
 	return &TypeSwitchStmt{
+		gen:       gen,
+		file:      file,
 		Ast:       st,
 		Templates: templates,
 	}
@@ -62,6 +66,9 @@ func (stmt TypeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
 		if t == nil {
 			// TODO error reporting
 		}
+
+		stmt.gen.log(stmt.file, stmt.Ast, "%s matched to %s -> %s", in, t.TypePattern, m)
+
 		clause := t.Apply(m)
 		node.Body.List = append(
 			[]ast.Stmt{clause},

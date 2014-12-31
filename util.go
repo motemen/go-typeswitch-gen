@@ -62,8 +62,14 @@ func copyNode(node ast.Node) ast.Node {
 	}
 
 	switch node := node.(type) {
+	case *ast.TypeSwitchStmt:
+		copied := *node
+		copied.Assign = copyNode(node.Assign).(ast.Stmt)
+		copied.Body = copyNode(node.Body).(*ast.BlockStmt)
+		return &copied
+
 	case *ast.DeclStmt:
-		copied := *node // copy
+		copied := *node
 		copied.Decl = copyNode(node.Decl).(ast.Decl)
 		return &copied
 
@@ -91,6 +97,14 @@ func copyNode(node ast.Node) ast.Node {
 		copied := *node
 		copied.Args = copyExprList(node.Args)
 		copied.Fun = copyNode(node.Fun).(ast.Expr)
+		return &copied
+
+	case *ast.TypeAssertExpr:
+		copied := *node
+		if node.Type != nil {
+			copied.Type = copyNode(node.Type).(ast.Expr)
+		}
+		copied.X = copyNode(node.X).(ast.Expr)
 		return &copied
 
 	case *ast.Ident:
@@ -167,6 +181,11 @@ func copyNode(node ast.Node) ast.Node {
 	case *ast.StructType:
 		copied := *node
 		copied.Fields = copyFieldList(node.Fields)
+		return &copied
+
+	case *ast.ReturnStmt:
+		copied := *node
+		copied.Results = copyExprList(node.Results)
 		return &copied
 
 	default:

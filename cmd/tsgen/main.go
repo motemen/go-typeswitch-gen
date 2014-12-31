@@ -26,21 +26,25 @@ func dieIf(err error, message ...string) {
 	}
 }
 
-func usage() {
-	fmt.Println(`usage:
-tsgen expand <file>
-`)
-	os.Exit(1)
+func init() {
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "usage: %s [<options>] <file>\n", os.Args[0])
+		flag.PrintDefaults()
+	}
 }
 
 // tsgen expand <file>
 func main() {
-	overwrite := flag.Bool("w", false, "write result to (source) file instead of stdout")
+	var (
+		overwrite = flag.Bool("w", false, "write result to (source) file instead of stdout")
+		verbose   = flag.Bool("verbose", false, "log verbose")
+	)
 	flag.Parse()
 
 	target := filepath.Clean(flag.Arg(0))
-	if target == "" {
-		usage()
+	if fi, err := os.Stat(target); err != nil || fi.IsDir() {
+		flag.Usage()
+		os.Exit(1)
 	}
 
 	var err error
@@ -49,6 +53,7 @@ func main() {
 	dieIf(err)
 
 	g := gen.Gen{}
+	g.Verbose = *verbose
 	g.FileWriter = func(filename string) io.WriteCloser {
 		if filename != target {
 			return nil

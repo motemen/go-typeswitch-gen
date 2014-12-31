@@ -1,7 +1,10 @@
 package gen
 
 import (
+	"bytes"
+	"fmt"
 	"io"
+	"os"
 	"path/filepath"
 
 	"go/ast"
@@ -21,6 +24,8 @@ type Gen struct {
 
 	// A function which returns an io.WriteCloser for given file path to be rewritten. Can return nil for non-target files.
 	FileWriter func(string) io.WriteCloser
+
+	Verbose bool
 
 	ssaProg *ssa.Program
 }
@@ -98,7 +103,7 @@ func namedParamPos(name string, list *ast.FieldList) int {
 	return -1
 }
 
-func argsTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
+func paramTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 	inTypes := []types.Type{}
 
 	for _, edge := range edges {
@@ -116,6 +121,7 @@ func argsTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 	return inTypes
 }
 
+// rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
 func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
 
@@ -132,12 +138,16 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 				continue
 			}
 
-			typeSwitch := NewTypeSwitchStmt(sw, pkgInfo.Info)
+			g.log(file, sw, "type switch statement: %s", sw.Assign)
+
+			typeSwitch := NewTypeSwitchStmt(g, file, sw, pkgInfo.Info)
 			if typeSwitch == nil {
 				continue
 			}
 
 			target := typeSwitch.Target()
+
+			g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
 
 			// TODO check target is an interface{}
 
@@ -147,9 +157,12 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 			// assert(pkgInfo.Scopes[funcDecl.Type] == parentScope)
 
 			// argument index of the variable which is target of the type switch
-			pos := namedParamPos(target.Name, funcDecl.Type.Params)
+			paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
 			in := mkCallGraphInEdges(ssaPkg, file, funcDecl)
-			inTypes := argsTypesAt(pos, in)
+			inTypes := paramTypesAt(paramPos, in)
+			for _, inType := range inTypes {
+				g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
+			}
 
 			// Finally rewrite it
 			*sw = *typeSwitch.Expand(inTypes)
@@ -159,6 +172,8 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 	return nil
 }
 
+// rewriteProg rewrites each files of each packages loaded
+// Must be called after initProg.
 func (g *Gen) rewriteProg() error {
 	for _, pkgInfo := range g.Prog.Created {
 		for _, file := range pkgInfo.Files {
@@ -181,4 +196,27 @@ func (g *Gen) rewriteProg() error {
 	}
 
 	return nil
+}
+
+func (g *Gen) log(file *ast.File, node ast.Node, pattern string, args ...interface{}) {
+	if g.Verbose == false {
+		return
+	}
+
+	pos := g.Fset.File(file.Pos()).Position(node.Pos())
+
+	for i, a := range args {
+		if node, ok := a.(ast.Node); ok {
+			args[i] = g.showNode(node)
+		}
+	}
+
+	args = append([]interface{}{pos}, args...)
+	fmt.Fprintf(os.Stderr, "%s: "+pattern+"\n", args...)
+}
+
+func (g *Gen) showNode(node ast.Node) string {
+	var buf bytes.Buffer
+	format.Node(&buf, g.Fset, node)
+	return buf.String()
 }
