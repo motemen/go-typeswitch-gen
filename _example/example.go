@@ -5,7 +5,6 @@ import (
 )
 
 type T interface{}
-type S T
 
 func mapKeys(m interface{}) []string {
 	switch m := m.(type) {

@@ -2,6 +2,8 @@ package gen
 
 import (
 	"fmt"
+	"strings"
+
 	"go/ast"
 	"golang.org/x/tools/go/types"
 )
@@ -136,8 +138,7 @@ func typeMatches(pat, in types.Type, m TypeMatchResult) bool {
 
 	case *types.Named:
 		// TODO
-		if pat.Obj().Name() == "T" || pat.Obj().Name() == "S" {
-			// this is a type variable
+		if isTypeVariable(pat) {
 			m[pat.Obj().Name()] = in
 			return true
 		}
@@ -231,4 +232,17 @@ func (t *Template) Apply(m TypeMatchResult) *ast.CaseClause {
 	})
 
 	return newClause
+}
+
+// isTypeVariable checks if a named type is a type variable or not.
+// Type variable is a type such that:
+// - is an interface{} with name consisted of all uppercase letters
+// - TODO: or a type with a comment of "// +tsgen: typevar"
+func isTypeVariable(t *types.Named) bool {
+	if it, ok := t.Underlying().(*types.Interface); ok && it.Empty() {
+		name := t.Obj().Name()
+		return name == strings.ToUpper(name)
+	}
+
+	return false
 }

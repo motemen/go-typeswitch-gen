@@ -6,6 +6,7 @@ import (
 
 	"go/ast"
 	"go/format"
+	"go/parser"
 	"golang.org/x/tools/astutil"
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/loader"
@@ -25,11 +26,18 @@ type Gen struct {
 }
 
 func (g *Gen) RewriteFiles(filenames []string) error {
-	if err := g.CreateFromFilenames("", filenames...); err != nil {
+	g.SourceImports = true
+	g.ParserMode = parser.ParseComments
+
+	var err error
+
+	err = g.CreateFromFilenames("", filenames...)
+	if err != nil {
 		return err
 	}
 
-	if err := g.initProg(); err != nil {
+	err = g.initProg()
+	if err != nil {
 		return err
 	}
 
@@ -37,10 +45,8 @@ func (g *Gen) RewriteFiles(filenames []string) error {
 }
 
 func (g *Gen) initProg() error {
-	g.Config.SourceImports = true
-
 	var err error
-	g.Prog, err = g.Config.Load()
+	g.Prog, err = g.Load()
 	if err != nil {
 		return err
 	}
