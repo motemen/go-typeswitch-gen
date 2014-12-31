@@ -17,10 +17,9 @@ import (
 
 type Gen struct {
 	loader.Config
-	FuncName string
-	Prog     *loader.Program
-	Files    map[string]*ast.File
-	Target   func(*token.FileSet, *ast.File) io.Writer
+	Prog         *loader.Program
+	Files        map[string]*ast.File
+	TargetWriter func(*token.FileSet, *ast.File) io.WriteCloser
 
 	ssaProg *ssa.Program
 }
@@ -152,12 +151,25 @@ func (g *Gen) rewriteProg() error {
 		ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
 
 		for _, file := range pkgInfo.Files {
-			if out := g.Target(g.Fset, file); out != nil {
-				if err := g.rewriteFile(ssaPkg, pkgInfo, file); err != nil {
-					return err
-				}
+			w := g.TargetWriter(g.Fset, file)
+			if w == nil {
+				continue
+			}
 
-				g.WriteNode(out, file)
+			var err error
+			err = g.rewriteFile(ssaPkg, pkgInfo, file)
+			if err != nil {
+				return err
+			}
+
+			err = g.WriteNode(w, file)
+			if err != nil {
+				return err
+			}
+
+			err = w.Close()
+			if err != nil {
+				return err
 			}
 		}
 	}

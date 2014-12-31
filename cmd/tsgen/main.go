@@ -34,7 +34,7 @@ func dieIf(err error, message ...string) {
 func main() {
 	g := gen.Gen{}
 
-	flag.StringVar(&g.FuncName, "func", "", "template func name")
+	overwrite := flag.Bool("w", false, "write result to (source) file instead of stdout")
 	flag.Parse()
 
 	targetFilename := flag.Arg(0)
@@ -58,8 +58,16 @@ func main() {
 	err = g.CreateFromFilenames("", filenames...)
 	dieIf(err, "g.CreateFromFilenames")
 
-	g.Target = func(fset *token.FileSet, file *ast.File) io.Writer {
+	g.Target = func(fset *token.FileSet, file *ast.File) io.WriteCloser {
 		if filepath.Clean(fset.File(file.Pos()).Name()) == filepath.Clean(targetFilename) {
+			if *overwrite {
+				w, err := os.Create(targetFilename)
+				if err != nil {
+					panic(err)
+				}
+				return w
+			}
+
 			return os.Stdout
 		}
 
@@ -68,11 +76,6 @@ func main() {
 
 	err = g.RewriteFiles(filenames)
 	dieIf(err)
-
-	//for filename, astFile := range g.Files {
-	//}
-
-	//fmt.Println(showNode(g.Prog.Fset, g.Prog.Created[0].Files[0]))
 }
 
 func showNode(fset *token.FileSet, node interface{}) string {
