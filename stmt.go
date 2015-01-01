@@ -61,7 +61,12 @@ func (stmt typeSwitchStmt) FindMatchingTemplate(in types.Type) (*template, typeM
 // Expand generates a type switch statement with expanded clauses for input types ins.
 func (stmt typeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
 	node := copyNode(stmt.node).(*ast.TypeSwitchStmt)
+	seen := map[string]bool{}
 	for _, in := range ins {
+		if seen[in.String()] {
+			continue
+		}
+
 		t, m := stmt.FindMatchingTemplate(in)
 		if t == nil {
 			// TODO error reporting
@@ -74,6 +79,8 @@ func (stmt typeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
 			[]ast.Stmt{clause},
 			node.Body.List...,
 		)
+
+		seen[in.String()] = true
 	}
 
 	return node
@@ -232,13 +239,29 @@ func (t *template) Apply(m typeMatchResult) *ast.CaseClause {
 	ast.Inspect(newClause, func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
 			if r, ok := m[ident.Name]; ok {
-				ident.Name = r.String()
+				// TODO insert import; Here must be enhanced
+				name, _ := splitType(r)
+				ident.Name = name
 			}
 		}
 		return true
 	})
 
 	return newClause
+}
+
+// splitType splits types.Type t to short form and its belonging package.
+// e.g. type github.com/motemen/gen.Gen -> ("gen.Gen", "github.com/motemen/gen")
+func splitType(t types.Type) (string, string) {
+	if named, ok := t.(*types.Named); ok {
+		obj := named.Obj()
+		return obj.Pkg().Name() + "." + obj.Name(), obj.Pkg().Path()
+	} else if pt, ok := t.(*types.Pointer); ok {
+		name, pkg := splitType(pt.Elem())
+		return "*" + name, pkg
+	} else {
+		return t.String(), ""
+	}
 }
 
 // isTypeVariable checks if a named type is a type variable or not.
