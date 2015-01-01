@@ -10,7 +10,6 @@ import (
 	"go/ast"
 	"go/format"
 	"go/parser"
-	"golang.org/x/tools/astutil"
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/pointer"
@@ -27,21 +26,20 @@ type Gen struct {
 
 	Verbose bool
 
+	Main string
+
 	ssaProg *ssa.Program
 }
 
-func (g *Gen) RewriteFiles(filenames []string) error {
+func New() *Gen {
+	g := &Gen{}
 	g.SourceImports = true
 	g.ParserMode = parser.ParseComments
+	return g
+}
 
-	var err error
-
-	err = g.CreateFromFilenames("", filenames...)
-	if err != nil {
-		return err
-	}
-
-	err = g.initProg()
+func (g *Gen) RewriteFiles() error {
+	err := g.initProg()
 	if err != nil {
 		return err
 	}
@@ -72,33 +70,21 @@ func (g *Gen) writeNode(w io.WriteCloser, node interface{}) error {
 	return w.Close()
 }
 
-func (g *Gen) mkCallGraphInEdges(ssaPkg *ssa.Package, file *ast.File, funcDecl *ast.FuncDecl) ([]*callgraph.Edge, error) {
-	mains := make([]*ssa.Package, 1)
-	if _, ok := ssaPkg.Members["main"]; ok {
-		mains[0] = ssaPkg
-	} else {
-		ssaTestPkg := g.ssaProg.CreateTestMainPackage(ssaPkg)
-		if ssaTestPkg == nil {
-			return nil, fmt.Errorf("program does not have main function nor tests")
-		}
-
-		mains[0] = ssaTestPkg
-	}
-
-	conf := &pointer.Config{
-		BuildCallGraph: true,
-		Mains:          mains,
-	}
-
-	ptAnalysis, err := pointer.Analyze(conf)
+func (g *Gen) callGraphInEdges(funcDecl *ast.FuncDecl) ([]*callgraph.Edge, error) {
+	pta, err := g.pointerAnalysis()
 	if err != nil {
 		return nil, err
 	}
 
-	path, _ := astutil.PathEnclosingInterval(file, funcDecl.Pos(), funcDecl.End())
-	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+	pkgInfo, path, _ := g.Prog.PathEnclosingInterval(funcDecl.Pos(), funcDecl.End())
+	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
 
-	return ptAnalysis.CallGraph.CreateNode(ssaFn).In, nil
+	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+	if ssaFn == nil {
+		return nil, fmt.Errorf("BUG: could not find SSA function: %s", funcDecl.Name)
+	}
+
+	return pta.CallGraph.CreateNode(ssaFn).In, nil
 }
 
 func namedParamPos(name string, list *ast.FieldList) int {
@@ -134,16 +120,20 @@ func paramTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 }
 
 // rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
+// TODO dismiss pkgInfo param
 func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
-	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
-
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
 			continue
 		}
 
-		// for each type switch statements...
+		if funcDecl.Body == nil {
+			// Maybe an object-provided function and we have no source information
+			continue
+		}
+
+		// For each type switch statements...
 		for _, stmt := range funcDecl.Body.List {
 			sw, ok := stmt.(*ast.TypeSwitchStmt)
 			if !ok {
@@ -169,7 +159,7 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 			// assert(pkgInfo.Scopes[funcDecl.Type] == parentScope)
 
 			// argument index of the variable which is target of the type switch
-			in, err := g.mkCallGraphInEdges(ssaPkg, file, funcDecl)
+			in, err := g.callGraphInEdges(funcDecl)
 			if err != nil {
 				return err
 			}
@@ -188,10 +178,45 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 	return nil
 }
 
+func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
+	// Either an ad-hoc package is created
+	// or the package specified by g.Main is loaded
+	var pkgInfo *loader.PackageInfo
+	if len(g.Prog.Created) > 0 {
+		pkgInfo = g.Prog.Created[0]
+	} else {
+		pkgInfo = g.Prog.Imported[g.Main]
+		if pkgInfo == nil {
+			return nil, fmt.Errorf("BUG: no package is created and main %q is not imported")
+		}
+	}
+
+	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
+
+	var ssaMain *ssa.Package
+	if _, ok := ssaPkg.Members["main"]; ok {
+		ssaMain = ssaPkg
+	} else {
+		ssaTestPkg := g.ssaProg.CreateTestMainPackage(ssaPkg)
+		if ssaTestPkg == nil {
+			return nil, fmt.Errorf("%s does not have main function nor tests", pkgInfo)
+		}
+
+		ssaMain = ssaTestPkg
+	}
+
+	conf := &pointer.Config{
+		BuildCallGraph: true,
+		Mains:          []*ssa.Package{ssaMain},
+	}
+
+	return pointer.Analyze(conf)
+}
+
 // rewriteProg rewrites each files of each packages loaded
 // Must be called after initProg.
 func (g *Gen) rewriteProg() error {
-	for _, pkgInfo := range g.Prog.Created {
+	for _, pkgInfo := range g.Prog.AllPackages {
 		for _, file := range pkgInfo.Files {
 			w := g.FileWriter(filepath.Clean(g.Fset.File(file.Pos()).Name()))
 			if w == nil {
@@ -201,12 +226,16 @@ func (g *Gen) rewriteProg() error {
 			var err error
 			err = g.rewriteFile(pkgInfo, file)
 			if err != nil {
-				return err
+				g.log(file, file.Name, "%s", err)
+				continue
+				// return err
 			}
 
 			err = g.writeNode(w, file)
 			if err != nil {
-				return err
+				g.log(file, file.Name, "%s", err)
+				continue
+				// return err
 			}
 		}
 	}

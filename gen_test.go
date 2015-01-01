@@ -17,6 +17,8 @@ func (nc nopCloser) Close() error {
 }
 
 func TestGen(t *testing.T) {
+	var err error
+
 	out := new(bytes.Buffer)
 	g := Gen{
 		Verbose: testing.Verbose(),
@@ -25,7 +27,10 @@ func TestGen(t *testing.T) {
 			return nopCloser{out}
 		},
 	}
-	err := g.RewriteFiles([]string{"./testdata/e.go"})
+	err = g.CreateFromFilenames("", "./testdata/e.go")
+	assert.NoError(t, err)
+
+	err = g.RewriteFiles()
 	assert.NoError(t, err)
 
 	t.Log(out.String())

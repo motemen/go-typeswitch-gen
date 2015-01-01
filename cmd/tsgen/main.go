@@ -27,35 +27,64 @@ func dieIf(err error, message ...string) {
 	}
 }
 
+type noCloser struct {
+	io.Writer
+}
+
+func (nc noCloser) Close() error {
+	return nil
+}
+
 func init() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [<options>] <file>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [<options>] <file> [-main <pkg>]\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 }
 
-// tsgen expand <file>
 func main() {
+	var err error
 	var (
 		overwrite = flag.Bool("w", false, "write result to (source) file instead of stdout")
 		verbose   = flag.Bool("verbose", false, "log verbose")
+		main      = flag.String("main", "", "entrypoint package")
 	)
 	flag.Parse()
 
-	target := filepath.Clean(flag.Arg(0))
+	if len(flag.Args()) < 1 {
+		flag.Usage()
+		os.Exit(1)
+	}
+
+	target := flag.Arg(0)
+	target, err = filepath.Abs(target)
+	dieIf(err)
+
 	if fi, err := os.Stat(target); err != nil || fi.IsDir() {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	var err error
+	g := gen.New()
 
-	filenames, err := listSiblingFiles(target)
-	dieIf(err)
+	if *main == "" {
+		filenames, err := listSiblingFiles(target)
+		dieIf(err)
 
-	g := gen.Gen{}
+		err = g.CreateFromFilenames("", filenames...)
+		dieIf(err)
+	} else {
+		g.Import(*main)
+		g.Main = *main
+	}
+
 	g.Verbose = *verbose
 	g.FileWriter = func(filename string) io.WriteCloser {
+		if filepath.IsAbs(filename) == false {
+			// TODO check errors
+			filename, _ = filepath.Abs(filename)
+		}
+
 		if filename != target {
 			return nil
 		}
@@ -68,10 +97,10 @@ func main() {
 			return w
 		}
 
-		return os.Stdout
+		return noCloser{os.Stdout}
 	}
 
-	err = g.RewriteFiles(filenames)
+	err = g.RewriteFiles()
 	dieIf(err)
 }
 
