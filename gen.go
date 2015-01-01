@@ -72,21 +72,33 @@ func (g *Gen) writeNode(w io.WriteCloser, node interface{}) error {
 	return w.Close()
 }
 
-func mkCallGraphInEdges(ssaPkg *ssa.Package, file *ast.File, funcDecl *ast.FuncDecl) []*callgraph.Edge {
+func (g *Gen) mkCallGraphInEdges(ssaPkg *ssa.Package, file *ast.File, funcDecl *ast.FuncDecl) ([]*callgraph.Edge, error) {
+	mains := make([]*ssa.Package, 1)
+	if _, ok := ssaPkg.Members["main"]; ok {
+		mains[0] = ssaPkg
+	} else {
+		ssaTestPkg := g.ssaProg.CreateTestMainPackage(ssaPkg)
+		if ssaTestPkg == nil {
+			return nil, fmt.Errorf("program does not have main function nor tests")
+		}
+
+		mains[0] = ssaTestPkg
+	}
+
 	conf := &pointer.Config{
 		BuildCallGraph: true,
-		Mains:          []*ssa.Package{ssaPkg},
+		Mains:          mains,
 	}
 
 	ptAnalysis, err := pointer.Analyze(conf)
 	if err != nil {
-		panic(err) // TODO
+		return nil, err
 	}
 
 	path, _ := astutil.PathEnclosingInterval(file, funcDecl.Pos(), funcDecl.End())
 	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
 
-	return ptAnalysis.CallGraph.CreateNode(ssaFn).In
+	return ptAnalysis.CallGraph.CreateNode(ssaFn).In, nil
 }
 
 func namedParamPos(name string, list *ast.FieldList) int {
@@ -157,8 +169,12 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 			// assert(pkgInfo.Scopes[funcDecl.Type] == parentScope)
 
 			// argument index of the variable which is target of the type switch
+			in, err := g.mkCallGraphInEdges(ssaPkg, file, funcDecl)
+			if err != nil {
+				return err
+			}
+
 			paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
-			in := mkCallGraphInEdges(ssaPkg, file, funcDecl)
 			inTypes := paramTypesAt(paramPos, in)
 			for _, inType := range inTypes {
 				g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)

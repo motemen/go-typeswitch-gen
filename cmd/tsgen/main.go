@@ -17,11 +17,12 @@ import (
 func dieIf(err error, message ...string) {
 	if err != nil {
 		msg := err.Error()
+		prefix := "fatal"
 		if len(message) > 0 {
-			msg = strings.Join(message, " ") + ": " + msg
+			prefix = strings.Join(message, " ")
 		}
 
-		fmt.Println(msg)
+		fmt.Fprintln(os.Stderr, prefix+": "+msg)
 		os.Exit(1)
 	}
 }
