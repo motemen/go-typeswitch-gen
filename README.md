@@ -9,6 +9,10 @@ go-typeswitch-gen
 
     tsgen [-w] [-verbose] <file>
 
+    -verbose=false: log verbose
+    -w=false: write result to (source) file instead of stdout
+
+
 ## USING TEMPLATE VARIABLES
 
 ~~~go
