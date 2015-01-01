@@ -47,8 +47,7 @@ func (g *Gen) RewriteFiles() error {
 	return g.rewriteProg()
 }
 
-func (g *Gen) initProg() error {
-	var err error
+func (g *Gen) initProg() (err error) {
 	g.Prog, err = g.Load()
 	if err != nil {
 		return err
@@ -101,7 +100,7 @@ func namedParamPos(name string, list *ast.FieldList) int {
 	return -1
 }
 
-func paramTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
+func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 	inTypes := []types.Type{}
 
 	for _, edge := range edges {
@@ -120,8 +119,8 @@ func paramTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 }
 
 // rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
-// TODO dismiss pkgInfo param
 func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
+	// pkgInfo, _, _ := g.Prog.PathEnclosingInterval(file.Pos(), file.End())
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -165,7 +164,7 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 			}
 
 			paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
-			inTypes := paramTypesAt(paramPos, in)
+			inTypes := argTypesAt(paramPos, in)
 			for _, inType := range inTypes {
 				g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
 			}
@@ -186,9 +185,10 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 		pkgInfo = g.Prog.Created[0]
 	} else {
 		pkgInfo = g.Prog.Imported[g.Main]
-		if pkgInfo == nil {
-			return nil, fmt.Errorf("BUG: no package is created and main %q is not imported")
-		}
+	}
+
+	if pkgInfo == nil {
+		return nil, fmt.Errorf("BUG: no package is created and main %q is not imported")
 	}
 
 	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
@@ -215,7 +215,7 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 
 // rewriteProg rewrites each files of each packages loaded
 // Must be called after initProg.
-func (g *Gen) rewriteProg() error {
+func (g *Gen) rewriteProg() (err error) {
 	for _, pkgInfo := range g.Prog.AllPackages {
 		for _, file := range pkgInfo.Files {
 			w := g.FileWriter(filepath.Clean(g.Fset.File(file.Pos()).Name()))
@@ -223,24 +223,19 @@ func (g *Gen) rewriteProg() error {
 				continue
 			}
 
-			var err error
 			err = g.rewriteFile(pkgInfo, file)
 			if err != nil {
-				g.log(file, file.Name, "%s", err)
-				continue
-				// return err
+				return
 			}
 
 			err = g.writeNode(w, file)
 			if err != nil {
-				g.log(file, file.Name, "%s", err)
-				continue
-				// return err
+				return
 			}
 		}
 	}
 
-	return nil
+	return
 }
 
 func (g *Gen) log(file *ast.File, node ast.Node, pattern string, args ...interface{}) {
