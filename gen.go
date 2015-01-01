@@ -26,6 +26,8 @@ type Gen struct {
 
 	Verbose bool
 
+	// Main specifies main package for pointer analysis.
+	// If not set, the ad-hoc package created by CreateFromFilenames is used.
 	Main string
 
 	ssaProg *ssa.Program
@@ -75,8 +77,8 @@ func (g *Gen) callGraphInEdges(funcDecl *ast.FuncDecl) ([]*callgraph.Edge, error
 		return nil, err
 	}
 
-	pkgInfo, path, _ := g.Prog.PathEnclosingInterval(funcDecl.Pos(), funcDecl.End())
-	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
+	pkg, path, _ := g.Prog.PathEnclosingInterval(funcDecl.Pos(), funcDecl.End())
+	ssaPkg := g.ssaProg.Package(pkg.Pkg)
 
 	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
 	if ssaFn == nil {
@@ -119,8 +121,9 @@ func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 }
 
 // rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
-func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
-	// pkgInfo, _, _ := g.Prog.PathEnclosingInterval(file.Pos(), file.End())
+func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
+	// XXX We can also obtain *loader.PackageInfo by:
+	// pkg, _, _ := g.Prog.PathEnclosingInterval(file.Pos(), file.End())
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -141,7 +144,7 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 
 			g.log(file, sw, "type switch statement: %s", sw.Assign)
 
-			typeSwitch := NewTypeSwitchStmt(g, file, sw, pkgInfo.Info)
+			typeSwitch := NewTypeSwitchStmt(g, file, sw, pkg.Info)
 			if typeSwitch == nil {
 				continue
 			}
@@ -153,9 +156,9 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 			// TODO check target is an interface{}
 
 			// XXX parentScope must be of a func
-			// scope := pkgInfo.Scopes[sw]
+			// scope := pkg.Scopes[sw]
 			// parentScope, _ := scope.LookupParent(target.Name)
-			// assert(pkgInfo.Scopes[funcDecl.Type] == parentScope)
+			// assert(pkg.Scopes[funcDecl.Type] == parentScope)
 
 			// argument index of the variable which is target of the type switch
 			in, err := g.callGraphInEdges(funcDecl)
@@ -180,18 +183,18 @@ func (g *Gen) rewriteFile(pkgInfo *loader.PackageInfo, file *ast.File) error {
 func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 	// Either an ad-hoc package is created
 	// or the package specified by g.Main is loaded
-	var pkgInfo *loader.PackageInfo
+	var pkg *loader.PackageInfo
 	if len(g.Prog.Created) > 0 {
-		pkgInfo = g.Prog.Created[0]
+		pkg = g.Prog.Created[0]
 	} else {
-		pkgInfo = g.Prog.Imported[g.Main]
+		pkg = g.Prog.Imported[g.Main]
 	}
 
-	if pkgInfo == nil {
+	if pkg == nil {
 		return nil, fmt.Errorf("BUG: no package is created and main %q is not imported")
 	}
 
-	ssaPkg := g.ssaProg.Package(pkgInfo.Pkg)
+	ssaPkg := g.ssaProg.Package(pkg.Pkg)
 
 	var ssaMain *ssa.Package
 	if _, ok := ssaPkg.Members["main"]; ok {
@@ -199,7 +202,7 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 	} else {
 		ssaTestPkg := g.ssaProg.CreateTestMainPackage(ssaPkg)
 		if ssaTestPkg == nil {
-			return nil, fmt.Errorf("%s does not have main function nor tests", pkgInfo)
+			return nil, fmt.Errorf("%s does not have main function nor tests", pkg)
 		}
 
 		ssaMain = ssaTestPkg
@@ -216,14 +219,14 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 // rewriteProg rewrites each files of each packages loaded
 // Must be called after initProg.
 func (g *Gen) rewriteProg() (err error) {
-	for _, pkgInfo := range g.Prog.AllPackages {
-		for _, file := range pkgInfo.Files {
+	for _, pkg := range g.Prog.AllPackages {
+		for _, file := range pkg.Files {
 			w := g.FileWriter(filepath.Clean(g.Fset.File(file.Pos()).Name()))
 			if w == nil {
 				continue
 			}
 
-			err = g.rewriteFile(pkgInfo, file)
+			err = g.rewriteFile(pkg, file)
 			if err != nil {
 				return
 			}
