@@ -10,6 +10,7 @@ import (
 	"go/ast"
 	"go/format"
 	"go/parser"
+	"go/token"
 	"golang.org/x/tools/go/callgraph"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/pointer"
@@ -17,29 +18,34 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
+// Gen is the typeswitch-gen API object.
 type Gen struct {
-	loader.Config
-	Prog *loader.Program
+	// Users can use Loader as a configuration; Its resulting program is used by Gen
+	Loader loader.Config
 
 	// A function which returns an io.WriteCloser for given file path to be rewritten. Can return nil for non-target files.
 	FileWriter func(string) io.WriteCloser
-
-	Verbose bool
 
 	// Main specifies main package for pointer analysis.
 	// If not set, the ad-hoc package created by CreateFromFilenames is used.
 	Main string
 
-	ssaProg *ssa.Program
+	Verbose bool
+
+	program    *loader.Program
+	ssaProgram *ssa.Program
 }
 
+// New creates a Gen with some initial configuration.
 func New() *Gen {
 	g := &Gen{}
-	g.SourceImports = true
-	g.ParserMode = parser.ParseComments
+	g.Loader.SourceImports = true
+	g.Loader.ParserMode = parser.ParseComments
 	return g
 }
 
+// RewriteFiles does the AST rewriting using g.Loader.
+// It calls g.FileWriter with file paths.
 func (g *Gen) RewriteFiles() error {
 	err := g.initProg()
 	if err != nil {
@@ -49,21 +55,22 @@ func (g *Gen) RewriteFiles() error {
 	return g.rewriteProg()
 }
 
+// initProg loads the program and does SSA analysis.
 func (g *Gen) initProg() (err error) {
-	g.Prog, err = g.Load()
+	g.program, err = g.Loader.Load()
 	if err != nil {
 		return err
 	}
 
 	mode := ssa.SanityCheckFunctions
-	g.ssaProg = ssa.Create(g.Prog, mode)
-	g.ssaProg.BuildAll()
+	g.ssaProgram = ssa.Create(g.program, mode)
+	g.ssaProgram.BuildAll()
 
 	return nil
 }
 
 func (g *Gen) writeNode(w io.WriteCloser, node interface{}) error {
-	err := format.Node(w, g.Fset, node)
+	err := format.Node(w, g.Loader.Fset, node)
 	if err != nil {
 		return err
 	}
@@ -77,10 +84,8 @@ func (g *Gen) callGraphInEdges(funcDecl *ast.FuncDecl) ([]*callgraph.Edge, error
 		return nil, err
 	}
 
-	pkg, path, _ := g.Prog.PathEnclosingInterval(funcDecl.Pos(), funcDecl.End())
-	ssaPkg := g.ssaProg.Package(pkg.Pkg)
-
-	ssaFn := ssa.EnclosingFunction(ssaPkg, path)
+	pkg, path, _ := g.program.PathEnclosingInterval(funcDecl.Pos(), funcDecl.End())
+	ssaFn := ssa.EnclosingFunction(g.ssaPackage(pkg), path)
 	if ssaFn == nil {
 		return nil, fmt.Errorf("BUG: could not find SSA function: %s", funcDecl.Name)
 	}
@@ -123,7 +128,7 @@ func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 // rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
 func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 	// XXX We can also obtain *loader.PackageInfo by:
-	// pkg, _, _ := g.Prog.PathEnclosingInterval(file.Pos(), file.End())
+	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())
 	for _, decl := range file.Decls {
 		funcDecl, ok := decl.(*ast.FuncDecl)
 		if !ok {
@@ -144,7 +149,7 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 
 			g.log(file, sw, "type switch statement: %s", sw.Assign)
 
-			typeSwitch := NewTypeSwitchStmt(g, file, sw, pkg.Info)
+			typeSwitch := newTypeSwitchStmt(g, file, sw, pkg.Info)
 			if typeSwitch == nil {
 				continue
 			}
@@ -180,32 +185,42 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 	return nil
 }
 
-func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
+func (g *Gen) mainPkg() (*loader.PackageInfo, error) {
 	// Either an ad-hoc package is created
 	// or the package specified by g.Main is loaded
 	var pkg *loader.PackageInfo
-	if len(g.Prog.Created) > 0 {
-		pkg = g.Prog.Created[0]
+	if len(g.program.Created) > 0 {
+		pkg = g.program.Created[0]
 	} else {
-		pkg = g.Prog.Imported[g.Main]
+		pkg = g.program.Imported[g.Main]
 	}
 
 	if pkg == nil {
 		return nil, fmt.Errorf("BUG: no package is created and main %q is not imported")
 	}
 
-	ssaPkg := g.ssaProg.Package(pkg.Pkg)
+	return pkg, nil
+}
+
+func (g *Gen) ssaPackage(pkg *loader.PackageInfo) *ssa.Package {
+	return g.ssaProgram.Package(pkg.Pkg)
+}
+
+func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
+	pkg, err := g.mainPkg()
+	if err != nil {
+		return nil, err
+	}
+	ssaPkg := g.ssaPackage(pkg)
 
 	var ssaMain *ssa.Package
 	if _, ok := ssaPkg.Members["main"]; ok {
 		ssaMain = ssaPkg
 	} else {
-		ssaTestPkg := g.ssaProg.CreateTestMainPackage(ssaPkg)
-		if ssaTestPkg == nil {
+		ssaMain = g.ssaProgram.CreateTestMainPackage(ssaPkg)
+		if ssaMain == nil {
 			return nil, fmt.Errorf("%s does not have main function nor tests", pkg)
 		}
-
-		ssaMain = ssaTestPkg
 	}
 
 	conf := &pointer.Config{
@@ -219,9 +234,9 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 // rewriteProg rewrites each files of each packages loaded
 // Must be called after initProg.
 func (g *Gen) rewriteProg() (err error) {
-	for _, pkg := range g.Prog.AllPackages {
+	for _, pkg := range g.program.AllPackages {
 		for _, file := range pkg.Files {
-			w := g.FileWriter(filepath.Clean(g.Fset.File(file.Pos()).Name()))
+			w := g.FileWriter(filepath.Clean(g.tokenFile(file).Name()))
 			if w == nil {
 				continue
 			}
@@ -241,12 +256,16 @@ func (g *Gen) rewriteProg() (err error) {
 	return
 }
 
+func (g *Gen) tokenFile(node ast.Node) *token.File {
+	return g.Loader.Fset.File(node.Pos())
+}
+
 func (g *Gen) log(file *ast.File, node ast.Node, pattern string, args ...interface{}) {
 	if g.Verbose == false {
 		return
 	}
 
-	pos := g.Fset.File(file.Pos()).Position(node.Pos())
+	pos := g.tokenFile(file).Position(node.Pos())
 
 	for i, a := range args {
 		if node, ok := a.(ast.Node); ok {
@@ -260,6 +279,6 @@ func (g *Gen) log(file *ast.File, node ast.Node, pattern string, args ...interfa
 
 func (g *Gen) showNode(node ast.Node) string {
 	var buf bytes.Buffer
-	format.Node(&buf, g.Fset, node)
+	format.Node(&buf, g.Loader.Fset, node)
 	return buf.String()
 }

@@ -18,7 +18,7 @@ type typeSwitchStmt struct {
 
 type typeMatchResult map[string]types.Type
 
-func NewTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
+func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
 	templates := []template{}
 
 	for _, clause := range st.Body.List {

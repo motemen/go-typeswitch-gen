@@ -71,10 +71,10 @@ func main() {
 		filenames, err := listSiblingFiles(target)
 		dieIf(err)
 
-		err = g.CreateFromFilenames("", filenames...)
+		err = g.Loader.CreateFromFilenames("", filenames...)
 		dieIf(err)
 	} else {
-		g.Import(*main)
+		g.Loader.Import(*main)
 		g.Main = *main
 	}
 
