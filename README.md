@@ -15,7 +15,7 @@ go-typeswitch-gen
 // example.go
 type T interface{} // treated as a type variable
 
-func onGenericStringMap(m interface{}) []string {
+func onGenericStringMap(m interface{}) {
     switch m := m.(type) {
     case map[string]T:
         var x T
