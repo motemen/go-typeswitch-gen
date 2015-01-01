@@ -7,35 +7,61 @@ go-typeswitch-gen
 
 ## USAGE
 
-    tsgen FILES...
+    tsgen [-w] [-verbose] <file>
 
-    tsgen -type T=int,*foo.Bar,map[string]bool FILES...
+## USING TEMPLATE VARIABLES
 
-## SOURCE CODE TEMPLATES
+~~~go
+// example.go
+type T interface{} // treated as a type variable
 
-    //go:generate tsgen example.go
-
-    type T interface{}
-
-    func mapKeys(m interface{}) []string {
-            // +tsgen T:"int,bool,[]int"
-            switch m := m.(type) {
-            default:
-                    panic(fmt.Sprintf("unexpected value of type %T", m))
-
-            case map[string]T:
-                    keys := make([]string, 0, len(m))
-                    for key := range m {
-                            keys = append(keys, key)
-                    }
-                    return keys
-            }
+func onGenericStringMap(m interface{}) []string {
+    switch m := m.(type) {
+    case map[string]T:
+        var x T
+        ...
     }
+}
+~~~
 
+And in somewhere:
+
+~~~go
+// main.go
+func main() {
+    onGenericStringMap(map[string]bool{})
+    onGenericStringMap(map[string]io.Reader{})
+}
+~~~
+
+And run:
+
+	tsgen example.go
+
+Then you will get type switch clauses whose type variables are replaced with concrete types:
+
+~~~go
+func onGenericStringMap(m interface{}) []string {
+    switch m := m.(type) {
+    case map[string]bool:
+        var x bool
+        ...
+    case map[string]io.Reader:
+        var x io.Reader
+        ...
+    case map[string]T:
+        var x T
+        ...
+    }
+}
+~~~
 
 ## DESCRIPTION
 
-`tsgen` rewrites Go source files in which the type switch statements with case clauses including type variables (e.g. `map[string]T` or `chan S1`)
-are instantiated with concrete types (e.g. `map[string]io.Reader` or `chan []byte`)
+`tsgen` rewrites type switch statements which has template case clauses, which are case clauses with type variables in their case expression (e.g. `case map[string]T:` or `case chan S1:`). `tsgen` generates new case clauses with concrete types based on the templates and adds them to the parent type switch statement, then outputs the modified file content (or rewrite the file itself with `-w`).
 
 Types with names of uppercase letters and numbers are concidered as type variables.
+
+## AUTHOR
+
+motemen <motemen@gmail.com>
