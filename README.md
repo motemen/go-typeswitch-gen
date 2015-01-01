@@ -62,6 +62,17 @@ func onGenericStringMap(m interface{}) []string {
 
 Types with names of uppercase letters and numbers are concidered as type variables.
 
+## USAGE WITH `go generate`
+
+Add lines below to expand type switches with `go generate`:
+
+~~~go
+//go:generate tsgen -w $GOFILE
+//go:generate goimports -w $GOFILE
+~~~
+
+For a complete example, consult the `_example` directory.
+
 ## AUTHOR
 
 motemen <motemen@gmail.com>

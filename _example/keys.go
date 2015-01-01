@@ -1,3 +1,6 @@
+//go:generate tsgen -w $GOFILE
+//go:generate goimports -w $GOFILE
+
 package main
 
 import (
