@@ -7,11 +7,10 @@ go-typeswitch-gen
 
 ## USAGE
 
-    tsgen [-w] [-verbose] <file>
-
-    -verbose=false: log verbose
-    -w=false: write result to (source) file instead of stdout
-
+    tsgen [-w] [-main <pkg>] [-verbose] <file>
+      -main="": entrypoint package
+      -verbose=false: log verbose
+      -w=false: write result to (source) file instead of stdout
 
 ## USING TEMPLATE VARIABLES
 
@@ -62,9 +61,9 @@ func onGenericStringMap(m interface{}) []string {
 
 ## DESCRIPTION
 
-`tsgen` rewrites type switch statements which has template case clauses, which are case clauses with type variables in their case expression (e.g. `case map[string]T:` or `case chan S1:`). `tsgen` generates new case clauses with concrete types based on the templates and adds them to the parent type switch statement, then outputs the modified file content (or rewrite the file itself with `-w`).
+`tsgen` rewrites type switch statements which has template case clauses, which are case clauses with type variables in their case expression (e.g. `case map[string]T:` or `case chan S1:`). `tsgen` analyzes the source code and detects the actual argument types (e.g. `map[string]io.Reader` or `chan bool`), then generates new case clauses with concrete types based on the templates and adds them to the parent type switch statement.
 
-Types with names of uppercase letters and numbers are concidered as type variables.
+Types with names of uppercase letters and numbers are considered as type variables.
 
 ## USAGE WITH `go generate`
 

@@ -37,7 +37,7 @@ func (nc noCloser) Close() error {
 
 func init() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [<options>] <file> [-main <pkg>]\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "usage: %s [-w] [-main <pkg>] [-verbose] <file>\n", os.Args[0])
 		flag.PrintDefaults()
 	}
 }
