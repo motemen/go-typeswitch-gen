@@ -14,6 +14,6 @@ func main() {
 		"b": false,
 	}
 
-	fmt.Println(mapKeys(intMap))
-	fmt.Println(mapKeys(boolMap))
+	fmt.Println(keys(intMap))
+	fmt.Println(keys(boolMap))
 }

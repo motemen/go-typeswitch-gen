@@ -1,0 +1,4 @@
+To run this example, run below:
+
+    go generate
+    go run *.go

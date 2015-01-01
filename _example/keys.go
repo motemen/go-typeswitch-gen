@@ -6,7 +6,7 @@ import (
 
 type T interface{}
 
-func mapKeys(m interface{}) []string {
+func keys(m interface{}) []string {
 	switch m := m.(type) {
 	case map[string]T:
 		keys := make([]string, 0, len(m))
