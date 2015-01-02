@@ -154,7 +154,7 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 				continue
 			}
 
-			target := typeSwitch.Target()
+			target := typeSwitch.target()
 
 			g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
 
@@ -178,7 +178,7 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 			}
 
 			// Finally rewrite it
-			*sw = *typeSwitch.Expand(inTypes)
+			*sw = *typeSwitch.expand(inTypes)
 		}
 	}
 

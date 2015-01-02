@@ -16,6 +16,7 @@ type typeSwitchStmt struct {
 	templates []template
 }
 
+// typeMatchResult is a type variable name to concrete type mapping
 type typeMatchResult map[string]types.Type
 
 func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
@@ -47,8 +48,8 @@ func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info ty
 	}
 }
 
-// FindMatchingTemplate find the first matching template to the input type in and returns the template and a typeMatchResult.
-func (stmt typeSwitchStmt) FindMatchingTemplate(in types.Type) (*template, typeMatchResult) {
+// findMatchingTemplate find the first matching template to the input type in and returns the template and a typeMatchResult.
+func (stmt typeSwitchStmt) findMatchingTemplate(in types.Type) (*template, typeMatchResult) {
 	for _, t := range stmt.templates {
 		if m, ok := t.Matches(in); ok {
 			return &t, m
@@ -58,8 +59,8 @@ func (stmt typeSwitchStmt) FindMatchingTemplate(in types.Type) (*template, typeM
 	return nil, nil
 }
 
-// Expand generates a type switch statement with expanded clauses for input types ins.
-func (stmt typeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
+// expand generates a type switch statement with expanded clauses for input types ins.
+func (stmt typeSwitchStmt) expand(ins []types.Type) *ast.TypeSwitchStmt {
 	node := copyNode(stmt.node).(*ast.TypeSwitchStmt)
 	seen := map[string]bool{}
 	for _, in := range ins {
@@ -67,14 +68,14 @@ func (stmt typeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
 			continue
 		}
 
-		t, m := stmt.FindMatchingTemplate(in)
+		t, m := stmt.findMatchingTemplate(in)
 		if t == nil {
 			// TODO error reporting
 		}
 
 		stmt.gen.log(stmt.file, stmt.node, "%s matched to %s -> %s", in, t.typePattern, m)
 
-		clause := t.Apply(m)
+		clause := t.apply(m)
 		node.Body.List = append(
 			[]ast.Stmt{clause},
 			node.Body.List...,
@@ -86,9 +87,9 @@ func (stmt typeSwitchStmt) Expand(ins []types.Type) *ast.TypeSwitchStmt {
 	return node
 }
 
-// Target returns the variable ast.Ident of interest of type-switch.
+// target returns the variable ast.Ident of interest of type-switch.
 // TODO: support other forms than `switch y := x.(type)`, otherwise panics
-func (stmt typeSwitchStmt) Target() *ast.Ident {
+func (stmt typeSwitchStmt) target() *ast.Ident {
 	return stmt.node.Assign.(*ast.AssignStmt).Rhs[0].(*ast.TypeAssertExpr).X.(*ast.Ident)
 }
 
@@ -115,7 +116,12 @@ func (t *template) Matches(in types.Type) (typeMatchResult, bool) {
 func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 	switch pat := pat.(type) {
 	case *types.Array:
-		panic("TODO *types.Array")
+		in, ok := in.(*types.Array)
+		if !ok {
+			return false
+		}
+
+		return typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Basic:
 		return types.Identical(pat, in)
@@ -133,7 +139,13 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 		return typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Interface:
-		panic("TODO *type.Interface")
+		in, ok := in.(*types.Interface)
+		if !ok {
+			return false
+		}
+
+		// XXX is it OK?
+		return types.Identical(pat, in)
 
 	case *types.Map:
 		in, ok := in.(*types.Map)
@@ -151,7 +163,6 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 		return true
 
 	case *types.Named:
-		// TODO
 		if isTypeVariable(pat) {
 			m[pat.Obj().Name()] = in
 			return true
@@ -233,8 +244,8 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 	}
 }
 
-// Apply applies typeMatchResult m to the template's caseClause and fills the type variables to specific types.
-func (t *template) Apply(m typeMatchResult) *ast.CaseClause {
+// apply applies typeMatchResult m to the template's caseClause and fills the type variables to specific types.
+func (t *template) apply(m typeMatchResult) *ast.CaseClause {
 	newClause := copyNode(t.caseClause).(*ast.CaseClause)
 	ast.Inspect(newClause, func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
