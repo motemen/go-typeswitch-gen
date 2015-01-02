@@ -20,14 +20,16 @@ func TestGen(t *testing.T) {
 	var err error
 
 	out := new(bytes.Buffer)
-	g := Gen{
-		Verbose: testing.Verbose(),
-		FileWriter: func(path string) io.WriteCloser {
-			assert.Equal(t, "testdata/e.go", path)
+	g := New()
+	g.Verbose = testing.Verbose()
+	g.FileWriter = func(path string) io.WriteCloser {
+		if path == "testdata/e.go" {
 			return nopCloser{out}
-		},
+		} else {
+			return nil
+		}
 	}
-	err = g.CreateFromFilenames("", "./testdata/e.go")
+	err = g.Loader.CreateFromFilenames("", "./testdata/e.go")
 	assert.NoError(t, err)
 
 	err = g.RewriteFiles()
