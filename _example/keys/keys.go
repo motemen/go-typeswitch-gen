@@ -3,9 +3,7 @@
 
 package main
 
-import (
-	"fmt"
-)
+import "fmt"
 
 type T interface{}
 
@@ -18,6 +16,6 @@ func keys(m interface{}) []string {
 		}
 		return keys
 	default:
-		panic(fmt.Sprintf("unexpected value of type %T", m))
+		panic(fmt.Sprintf("unexpected type: %T", m))
 	}
 }

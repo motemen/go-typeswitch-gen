@@ -16,6 +16,6 @@ func foreach(a interface{}, cb interface{}) {
 		}
 
 	default:
-		panic(fmt.Sprintf("unpexpected type of %T and %T", a, cb))
+		panic(fmt.Sprintf("unpexpected type: %T and %T", a, cb))
 	}
 }
