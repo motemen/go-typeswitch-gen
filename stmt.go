@@ -20,7 +20,12 @@ type typeSwitchStmt struct {
 type typeMatchResult map[string]types.Type
 
 func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
-	templates := []template{}
+	stmt := &typeSwitchStmt{
+		gen:       gen,
+		file:      file,
+		node:      st,
+		templates: []template{},
+	}
 
 	for _, clause := range st.Body.List {
 		clause := clause.(*ast.CaseClause) // must not fail
@@ -32,20 +37,16 @@ func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info ty
 		tmpl := template{
 			typePattern: info.TypeOf(clause.List[0]),
 			caseClause:  clause,
+			stmt:        stmt,
 		}
-		templates = append(templates, tmpl)
+		stmt.templates = append(stmt.templates, tmpl)
 	}
 
-	if len(templates) == 0 {
+	if len(stmt.templates) == 0 {
 		return nil
 	}
 
-	return &typeSwitchStmt{
-		gen:       gen,
-		file:      file,
-		node:      st,
-		templates: templates,
-	}
+	return stmt
 }
 
 // findMatchingTemplate find the first matching template to the input type in and returns the template and a typeMatchResult.
@@ -100,12 +101,14 @@ type template struct {
 
 	// caseClause is a clause template with type variables.
 	caseClause *ast.CaseClause
+
+	stmt *typeSwitchStmt
 }
 
 // Matches tests whether input type in matches the template's typePattern and returns a typeMatchResult.
 func (t *template) Matches(in types.Type) (typeMatchResult, bool) {
 	m := typeMatchResult{}
-	if typeMatches(t.typePattern, in, m) {
+	if t.stmt.typeMatches(t.typePattern, in, m) {
 		return m, true
 	}
 
@@ -113,7 +116,7 @@ func (t *template) Matches(in types.Type) (typeMatchResult, bool) {
 }
 
 // typeMatches is a helper function for Matches.
-func typeMatches(pat, in types.Type, m typeMatchResult) bool {
+func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) bool {
 	switch pat := pat.(type) {
 	case *types.Array:
 		in, ok := in.(*types.Array)
@@ -121,7 +124,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		return typeMatches(pat.Elem(), in.Elem(), m)
+		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Basic:
 		return types.Identical(pat, in)
@@ -136,7 +139,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		return typeMatches(pat.Elem(), in.Elem(), m)
+		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Interface:
 		in, ok := in.(*types.Interface)
@@ -153,17 +156,17 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		if !typeMatches(pat.Key(), in.Key(), m) {
+		if !stmt.typeMatches(pat.Key(), in.Key(), m) {
 			return false
 		}
-		if !typeMatches(pat.Elem(), in.Elem(), m) {
+		if !stmt.typeMatches(pat.Elem(), in.Elem(), m) {
 			return false
 		}
 
 		return true
 
 	case *types.Named:
-		if isTypeVariable(pat) {
+		if stmt.gen.isTypeVariable(pat) {
 			m[pat.Obj().Name()] = in
 			return true
 		}
@@ -176,7 +179,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		return typeMatches(pat.Elem(), in.Elem(), m)
+		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Signature:
 		in, ok := in.(*types.Signature)
@@ -184,11 +187,11 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		if !typeMatches(pat.Params(), in.Params(), m) {
+		if !stmt.typeMatches(pat.Params(), in.Params(), m) {
 			return false
 		}
 
-		if !typeMatches(pat.Results(), in.Results(), m) {
+		if !stmt.typeMatches(pat.Results(), in.Results(), m) {
 			return false
 		}
 
@@ -200,7 +203,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 			return false
 		}
 
-		return typeMatches(pat.Elem(), in.Elem(), m)
+		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
 
 	case *types.Struct:
 		in, ok := in.(*types.Struct)
@@ -213,7 +216,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 		}
 
 		for i := 0; i < pat.NumFields(); i++ {
-			if !typeMatches(pat.Field(i).Type(), in.Field(i).Type(), m) {
+			if !stmt.typeMatches(pat.Field(i).Type(), in.Field(i).Type(), m) {
 				return false
 			}
 		}
@@ -231,7 +234,7 @@ func typeMatches(pat, in types.Type, m typeMatchResult) bool {
 		}
 
 		for i := 0; i < pat.Len(); i++ {
-			if !typeMatches(pat.At(i).Type(), in.At(i).Type(), m) {
+			if !stmt.typeMatches(pat.At(i).Type(), in.At(i).Type(), m) {
 				return false
 			}
 		}
@@ -278,11 +281,61 @@ func splitType(t types.Type) (string, string) {
 // isTypeVariable checks if a named type is a type variable or not.
 // Type variable is a type such that:
 // - is an interface{} with name consisted of all uppercase letters
-// - TODO: or a type with a comment of "// +tsgen: typevar"
-func isTypeVariable(t *types.Named) bool {
+// - or a type declared with a comment of "// +tsgen typevar"
+func (gen *Gen) isTypeVariable(t *types.Named) bool {
 	if it, ok := t.Underlying().(*types.Interface); ok && it.Empty() {
 		name := t.Obj().Name()
-		return name == strings.ToUpper(name)
+		if name == strings.ToUpper(name) {
+			return true
+		}
+	}
+
+	genDecls := []*ast.GenDecl{}
+
+	for _, lpkg := range gen.program.Created {
+		for _, file := range lpkg.Files {
+			for _, decl := range file.Decls {
+				genDecl, ok := decl.(*ast.GenDecl)
+				if ok {
+					genDecls = append(genDecls, genDecl)
+				}
+			}
+		}
+	}
+
+	for _, genDecl := range genDecls {
+		for _, spec := range genDecl.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+
+			if isTypeVariableComment(genDecl.Doc) || isTypeVariableComment(typeSpec.Comment) {
+				if typeSpec.Name.Name == t.Obj().Name() {
+					return true
+				}
+			}
+		}
+	}
+
+	return false
+}
+
+// isTypeVariableComment checks if cg is a comment like:
+//   // +tsgen typevar
+// or
+//  /* +tsgen typevar */
+// .
+func isTypeVariableComment(cg *ast.CommentGroup) bool {
+	if cg == nil {
+		return false
+	}
+
+	for _, c := range cg.List {
+		comment := strings.TrimSpace(c.Text[2:])
+		if strings.HasPrefix(comment, "+tsgen typevar") {
+			return true
+		}
 	}
 
 	return false

@@ -55,9 +55,15 @@ func (g *Gen) RewriteFiles() error {
 	return g.rewriteProg()
 }
 
-// initProg loads the program and does SSA analysis.
-func (g *Gen) initProg() (err error) {
+// load loads the program
+func (g *Gen) load() (err error) {
 	g.program, err = g.Loader.Load()
+	return
+}
+
+// initProg loads the program and does SSA analysis.
+func (g *Gen) initProg() error {
+	err := g.load()
 	if err != nil {
 		return err
 	}
