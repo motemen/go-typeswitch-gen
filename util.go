@@ -188,6 +188,12 @@ func copyNode(node ast.Node) ast.Node {
 		copied.Results = copyExprList(node.Results)
 		return &copied
 
+	case *ast.BinaryExpr:
+		copied := *node
+		copied.X = copyNode(node.X).(ast.Expr)
+		copied.Y = copyNode(node.Y).(ast.Expr)
+		return &copied
+
 	default:
 		fmt.Printf("copyNode: unexpected node type %T\n", node)
 		return node
