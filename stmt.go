@@ -10,7 +10,6 @@ import (
 
 // typeSwitchStmt represents a parsed type switch statement.
 type typeSwitchStmt struct {
-	gen       *Gen
 	file      *ast.File
 	node      *ast.TypeSwitchStmt
 	templates []template
@@ -21,7 +20,6 @@ type typeMatchResult map[string]types.Type
 
 func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
 	stmt := &typeSwitchStmt{
-		gen:       gen,
 		file:      file,
 		node:      st,
 		templates: []template{},
@@ -50,9 +48,9 @@ func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info ty
 }
 
 // findMatchingTemplate find the first matching template to the input type in and returns the template and a typeMatchResult.
-func (stmt typeSwitchStmt) findMatchingTemplate(in types.Type) (*template, typeMatchResult) {
+func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*template, typeMatchResult) {
 	for _, t := range stmt.templates {
-		if m, ok := t.Matches(in); ok {
+		if m, ok := gen.Matches(t, in); ok {
 			return &t, m
 		}
 	}
@@ -61,7 +59,7 @@ func (stmt typeSwitchStmt) findMatchingTemplate(in types.Type) (*template, typeM
 }
 
 // expand generates a type switch statement with expanded clauses for input types ins.
-func (stmt typeSwitchStmt) expand(ins []types.Type) *ast.TypeSwitchStmt {
+func (gen Gen) expand(stmt *typeSwitchStmt, ins []types.Type) *ast.TypeSwitchStmt {
 	node := copyNode(stmt.node).(*ast.TypeSwitchStmt)
 	seen := map[string]bool{}
 	for _, in := range ins {
@@ -69,12 +67,12 @@ func (stmt typeSwitchStmt) expand(ins []types.Type) *ast.TypeSwitchStmt {
 			continue
 		}
 
-		t, m := stmt.findMatchingTemplate(in)
+		t, m := gen.findMatchingTemplate(stmt, in)
 		if t == nil {
 			// TODO error reporting
 		}
 
-		stmt.gen.log(stmt.file, stmt.node, "%s matched to %s -> %s", in, t.typePattern, m)
+		gen.log(stmt.file, stmt.node, "%s matched to %s -> %s", in, t.typePattern, m)
 
 		clause := t.apply(m)
 		node.Body.List = append(
@@ -106,9 +104,9 @@ type template struct {
 }
 
 // Matches tests whether input type in matches the template's typePattern and returns a typeMatchResult.
-func (t *template) Matches(in types.Type) (typeMatchResult, bool) {
+func (gen Gen) Matches(t template, in types.Type) (typeMatchResult, bool) {
 	m := typeMatchResult{}
-	if t.stmt.typeMatches(t.typePattern, in, m) {
+	if gen.typeMatches(t.stmt, t.typePattern, in, m) {
 		return m, true
 	}
 
@@ -116,7 +114,7 @@ func (t *template) Matches(in types.Type) (typeMatchResult, bool) {
 }
 
 // typeMatches is a helper function for Matches.
-func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) bool {
+func (gen Gen) typeMatches(stmt *typeSwitchStmt, pat, in types.Type, m typeMatchResult) bool {
 	switch pat := pat.(type) {
 	case *types.Array:
 		in, ok := in.(*types.Array)
@@ -124,7 +122,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
+		return gen.typeMatches(stmt, pat.Elem(), in.Elem(), m)
 
 	case *types.Basic:
 		return types.Identical(pat, in)
@@ -139,7 +137,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
+		return gen.typeMatches(stmt, pat.Elem(), in.Elem(), m)
 
 	case *types.Interface:
 		in, ok := in.(*types.Interface)
@@ -156,17 +154,17 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		if !stmt.typeMatches(pat.Key(), in.Key(), m) {
+		if !gen.typeMatches(stmt, pat.Key(), in.Key(), m) {
 			return false
 		}
-		if !stmt.typeMatches(pat.Elem(), in.Elem(), m) {
+		if !gen.typeMatches(stmt, pat.Elem(), in.Elem(), m) {
 			return false
 		}
 
 		return true
 
 	case *types.Named:
-		if stmt.gen.isTypeVariable(pat) {
+		if gen.isTypeVariable(pat) {
 			m[pat.Obj().Name()] = in
 			return true
 		}
@@ -179,7 +177,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
+		return gen.typeMatches(stmt, pat.Elem(), in.Elem(), m)
 
 	case *types.Signature:
 		in, ok := in.(*types.Signature)
@@ -187,11 +185,11 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		if !stmt.typeMatches(pat.Params(), in.Params(), m) {
+		if !gen.typeMatches(stmt, pat.Params(), in.Params(), m) {
 			return false
 		}
 
-		if !stmt.typeMatches(pat.Results(), in.Results(), m) {
+		if !gen.typeMatches(stmt, pat.Results(), in.Results(), m) {
 			return false
 		}
 
@@ -203,7 +201,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 			return false
 		}
 
-		return stmt.typeMatches(pat.Elem(), in.Elem(), m)
+		return gen.typeMatches(stmt, pat.Elem(), in.Elem(), m)
 
 	case *types.Struct:
 		in, ok := in.(*types.Struct)
@@ -216,7 +214,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 		}
 
 		for i := 0; i < pat.NumFields(); i++ {
-			if !stmt.typeMatches(pat.Field(i).Type(), in.Field(i).Type(), m) {
+			if !gen.typeMatches(stmt, pat.Field(i).Type(), in.Field(i).Type(), m) {
 				return false
 			}
 		}
@@ -234,7 +232,7 @@ func (stmt *typeSwitchStmt) typeMatches(pat, in types.Type, m typeMatchResult) b
 		}
 
 		for i := 0; i < pat.Len(); i++ {
-			if !stmt.typeMatches(pat.At(i).Type(), in.At(i).Type(), m) {
+			if !gen.typeMatches(stmt, pat.At(i).Type(), in.At(i).Type(), m) {
 				return false
 			}
 		}

@@ -184,7 +184,7 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 			}
 
 			// Finally rewrite it
-			*sw = *typeSwitch.expand(inTypes)
+			*sw = *g.expand(typeSwitch, inTypes)
 		}
 	}
 
