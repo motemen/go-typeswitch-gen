@@ -18,7 +18,7 @@ type typeSwitchStmt struct {
 // typeMatchResult is a type variable name to concrete type mapping
 type typeMatchResult map[string]types.Type
 
-func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
+func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
 	stmt := &typeSwitchStmt{
 		file:      file,
 		node:      st,
@@ -47,7 +47,7 @@ func newTypeSwitchStmt(gen *Gen, file *ast.File, st *ast.TypeSwitchStmt, info ty
 	return stmt
 }
 
-// findMatchingTemplate find the first matching template to the input type in and returns the template and a typeMatchResult.
+// findMatchingTemplate finds the first matching template to the input type in and returns the template and a typeMatchResult.
 func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*template, typeMatchResult) {
 	for _, t := range stmt.templates {
 		if m, ok := gen.Matches(t, in); ok {
@@ -322,7 +322,7 @@ func (gen *Gen) isTypeVariable(t *types.Named) bool {
 // isTypeVariableComment checks if cg is a comment like:
 //   // +tsgen typevar
 // or
-//  /* +tsgen typevar */
+//   /* +tsgen typevar */
 // .
 func isTypeVariableComment(cg *ast.CommentGroup) bool {
 	if cg == nil {

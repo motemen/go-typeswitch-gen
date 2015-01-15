@@ -155,7 +155,7 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 
 			g.log(file, sw, "type switch statement: %s", sw.Assign)
 
-			typeSwitch := newTypeSwitchStmt(g, file, sw, pkg.Info)
+			typeSwitch := newTypeSwitchStmt(file, sw, pkg.Info)
 			if typeSwitch == nil {
 				continue
 			}
