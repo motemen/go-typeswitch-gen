@@ -35,7 +35,6 @@ func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) 
 		tmpl := template{
 			typePattern: info.TypeOf(clause.List[0]),
 			caseClause:  clause,
-			stmt:        stmt,
 		}
 		stmt.templates = append(stmt.templates, tmpl)
 	}
@@ -50,7 +49,7 @@ func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) 
 // findMatchingTemplate finds the first matching template to the input type in and returns the template and a typeMatchResult.
 func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*template, typeMatchResult) {
 	for _, t := range stmt.templates {
-		if m, ok := gen.Matches(t, in); ok {
+		if m, ok := gen.TemplateMatches(stmt, t, in); ok {
 			return &t, m
 		}
 	}
@@ -99,21 +98,19 @@ type template struct {
 
 	// caseClause is a clause template with type variables.
 	caseClause *ast.CaseClause
-
-	stmt *typeSwitchStmt
 }
 
 // Matches tests whether input type in matches the template's typePattern and returns a typeMatchResult.
-func (gen Gen) Matches(t template, in types.Type) (typeMatchResult, bool) {
+func (gen Gen) TemplateMatches(stmt *typeSwitchStmt, t template, in types.Type) (typeMatchResult, bool) {
 	m := typeMatchResult{}
-	if gen.typeMatches(t.stmt, t.typePattern, in, m) {
+	if gen.typeMatches(stmt, t.typePattern, in, m) {
 		return m, true
 	}
 
 	return nil, false
 }
 
-// typeMatches is a helper function for Matches.
+// typeMatches is a helper function for TemplateMatches.
 func (gen Gen) typeMatches(stmt *typeSwitchStmt, pat, in types.Type, m typeMatchResult) bool {
 	switch pat := pat.(type) {
 	case *types.Array:
