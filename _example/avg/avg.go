@@ -1,4 +1,4 @@
-//go:generate tsgen $GOFILE
+//go:generate tsgen -w $GOFILE
 
 package main
 
