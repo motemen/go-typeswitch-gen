@@ -35,9 +35,18 @@ func (nc noCloser) Close() error {
 	return nil
 }
 
+var usage = `Usage: %s [-w] [-main <pkg>] [-verbose] <mode> <file>
+
+Modes:
+  expand: expand generic case clauses in type switch statements by its actual arguments
+  sort: sort case clauses in type switch statements
+
+Flags:
+`
+
 func init() {
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "usage: %s [-w] [-main <pkg>] [-verbose] <file>\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, usage, os.Args[0])
 		flag.PrintDefaults()
 	}
 }
@@ -51,12 +60,16 @@ func main() {
 	)
 	flag.Parse()
 
-	if len(flag.Args()) < 1 {
+	args := flag.Args()
+
+	if len(args) < 2 {
 		flag.Usage()
 		os.Exit(1)
 	}
 
-	target := flag.Arg(0)
+	mode := args[0]
+
+	target := args[1]
 	target, err = filepath.Abs(target)
 	dieIf(err)
 
@@ -66,18 +79,6 @@ func main() {
 	}
 
 	g := gen.New()
-
-	if *main == "" {
-		filenames, err := listSiblingFiles(target)
-		dieIf(err)
-
-		err = g.Loader.CreateFromFilenames("", filenames...)
-		dieIf(err)
-	} else {
-		g.Loader.Import(*main)
-		g.Main = *main
-	}
-
 	g.Verbose = *verbose
 	g.FileWriter = func(filename string) io.WriteCloser {
 		if filepath.IsAbs(filename) == false {
@@ -100,8 +101,37 @@ func main() {
 		return noCloser{os.Stdout}
 	}
 
-	err = g.RewriteFiles()
+	switch mode {
+	case "expand":
+		doExpand(g, target, *main)
+
+	case "sort":
+		doSort(g, target)
+	}
+}
+
+func doExpand(g *gen.Gen, target, main string) {
+	if main == "" {
+		filenames, err := listSiblingFiles(target)
+		dieIf(err)
+
+		err = g.Loader.CreateFromFilenames("", filenames...)
+		dieIf(err)
+	} else {
+		g.Loader.Import(main)
+		g.Main = main
+	}
+
+	err := g.RewriteFiles()
 	dieIf(err)
+}
+
+func doSort(g *gen.Gen, target string) error {
+	if err := g.Loader.CreateFromFilenames("", target); err != nil {
+		return err
+	}
+
+	return g.Sort()
 }
 
 func listSiblingFiles(filename string) ([]string, error) {
