@@ -76,6 +76,7 @@ func (g *Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopulari
 		list:       list,
 		interfaces: interfaceOrder,
 		gen:        g,
+		info:       info,
 	}
 }
 

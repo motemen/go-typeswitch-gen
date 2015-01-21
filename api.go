@@ -206,8 +206,8 @@ func (g *Gen) expandFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) er
 func (g *Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
 	ast.Inspect(file, func(n ast.Node) bool {
 		if stmt, ok := n.(*ast.TypeSwitchStmt); ok {
-			g.byInterface(stmt.Body.List, &pkg.Info)
-			sort.Sort(byName{stmt.Body.List, g})
+			sort.Sort(g.byInterface(stmt.Body.List, &pkg.Info))
+			// sort.Sort(byName{stmt.Body.List, g})
 			return false
 		}
 
