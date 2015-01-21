@@ -1,4 +1,4 @@
-//go:generate tsgen -w $GOFILE
+//go:generate tsgen -w expand $GOFILE
 //go:generate goimports -w $GOFILE
 
 package main
