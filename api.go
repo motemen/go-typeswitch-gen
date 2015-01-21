@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sort"
 
 	"go/ast"
 	"go/format"
@@ -44,25 +45,35 @@ func New() *Gen {
 	return g
 }
 
-// RewriteFiles does the AST rewriting using g.Loader.
-// It calls g.FileWriter with file paths.
-func (g *Gen) RewriteFiles() error {
-	err := g.initProg()
+// Expand expands type switches in the program with their template case clauses
+// and actual arguments.
+func (g *Gen) Expand() error {
+	err := g.buildSSA()
 	if err != nil {
 		return err
 	}
 
-	return g.rewriteProg()
+	return g.doFiles(g.expandFileTypeSwitches)
 }
 
-// load loads the program
+// Sort sorts case clauses in the type switches in the program.
+func (g *Gen) Sort() error {
+	err := g.load()
+	if err != nil {
+		return err
+	}
+
+	return g.doFiles(g.sortFileTypeSwitches)
+}
+
+// load loads the program.
 func (g *Gen) load() (err error) {
 	g.program, err = g.Loader.Load()
 	return
 }
 
-// initProg loads the program and does SSA analysis.
-func (g *Gen) initProg() error {
+// buildSSA loads the program and does SSA analysis.
+func (g *Gen) buildSSA() error {
 	err := g.load()
 	if err != nil {
 		return err
@@ -131,8 +142,9 @@ func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 	return inTypes
 }
 
-// rewriteFile is the main logic. May rewrite type switch statements in ast.File file.
-func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
+// expandFileTypeSwitches is the main logic for "expand" mode.
+// May rewrite type switch statements in *ast.File file.
+func (g *Gen) expandFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
 	// XXX We can also obtain *loader.PackageInfo by:
 	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())
 	for _, decl := range file.Decls {
@@ -191,6 +203,20 @@ func (g *Gen) rewriteFile(pkg *loader.PackageInfo, file *ast.File) error {
 	return nil
 }
 
+func (g *Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
+	ast.Inspect(file, func(n ast.Node) bool {
+		if stmt, ok := n.(*ast.TypeSwitchStmt); ok {
+			g.byInterface(stmt.Body.List, &pkg.Info)
+			sort.Sort(byName{stmt.Body.List, g})
+			return false
+		}
+
+		return true
+	})
+
+	return nil
+}
+
 func (g *Gen) mainPkg() (*loader.PackageInfo, error) {
 	// Either an ad-hoc package is created
 	// or the package specified by g.Main is loaded
@@ -237,9 +263,12 @@ func (g *Gen) pointerAnalysis() (*pointer.Result, error) {
 	return pointer.Analyze(conf)
 }
 
-// rewriteProg rewrites each files of each packages loaded
-// Must be called after initProg.
-func (g *Gen) rewriteProg() (err error) {
+// doFiles is a utility method which calls rewrite for each *ast.File file in the program loaded
+// and writes out the modified file (to stdout or the original file).
+// rewrite is expected to modify the *ast.File file given.
+// It uses g.FileWriter to determine if the file is in target or not.
+// Must be called after g.load().
+func (g *Gen) doFiles(rewrite func(*loader.PackageInfo, *ast.File) error) (err error) {
 	for _, pkg := range g.program.AllPackages {
 		for _, file := range pkg.Files {
 			w := g.FileWriter(filepath.Clean(g.tokenFile(file).Name()))
@@ -247,7 +276,7 @@ func (g *Gen) rewriteProg() (err error) {
 				continue
 			}
 
-			err = g.rewriteFile(pkg, file)
+			err = rewrite(pkg, file)
 			if err != nil {
 				return
 			}
@@ -259,7 +288,7 @@ func (g *Gen) rewriteProg() (err error) {
 		}
 	}
 
-	return
+	return nil
 }
 
 func (g *Gen) tokenFile(node ast.Node) *token.File {

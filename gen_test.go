@@ -39,7 +39,7 @@ func TestGen(t *testing.T) {
 	err = g.Loader.CreateFromFilenames("", "./testdata/e.go")
 	assert.NoError(t, err)
 
-	err = g.RewriteFiles()
+	err = g.Expand()
 	assert.NoError(t, err)
 
 	t.Log(out.String())

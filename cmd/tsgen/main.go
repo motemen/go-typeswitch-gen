@@ -103,27 +103,32 @@ func main() {
 
 	switch mode {
 	case "expand":
-		doExpand(g, target, *main)
+		err := doExpand(g, target, *main)
+		dieIf(err)
 
 	case "sort":
-		doSort(g, target)
+		err := doSort(g, target)
+		dieIf(err)
 	}
 }
 
-func doExpand(g *gen.Gen, target, main string) {
+func doExpand(g *gen.Gen, target, main string) error {
 	if main == "" {
 		filenames, err := listSiblingFiles(target)
-		dieIf(err)
+		if err != nil {
+			return err
+		}
 
 		err = g.Loader.CreateFromFilenames("", filenames...)
-		dieIf(err)
+		if err != nil {
+			return err
+		}
 	} else {
 		g.Loader.Import(main)
 		g.Main = main
 	}
 
-	err := g.RewriteFiles()
-	dieIf(err)
+	return g.Expand()
 }
 
 func doSort(g *gen.Gen, target string) error {
