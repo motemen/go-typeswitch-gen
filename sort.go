@@ -1,19 +1,20 @@
 package gen
 
 import (
+	"sort"
+
 	"go/ast"
 	"golang.org/x/tools/go/types"
-	"sort"
 )
 
-type byName struct {
+type byTypeName struct {
 	list []ast.Stmt
 	gen  *Gen
 }
 
-func (s byName) Len() int      { return len(s.list) }
-func (s byName) Swap(i, j int) { s.list[i], s.list[j] = s.list[j], s.list[i] }
-func (s byName) Less(i, j int) bool {
+func (s byTypeName) Len() int      { return len(s.list) }
+func (s byTypeName) Swap(i, j int) { s.list[i], s.list[j] = s.list[j], s.list[i] }
+func (s byTypeName) Less(i, j int) bool {
 	cc1 := s.list[i].(*ast.CaseClause)
 	cc2 := s.list[j].(*ast.CaseClause)
 

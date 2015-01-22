@@ -3,10 +3,7 @@ package gen
 import (
 	"bytes"
 	"io"
-	"strings"
 	"testing"
-
-	"go/ast"
 
 	"golang.org/x/tools/go/types"
 
@@ -61,35 +58,6 @@ func TestIsTypeVariable(t *testing.T) {
 		}
 
 		typeDefs[ident.Name], _ = obj.Type().(*types.Named)
-	}
-
-	for _, file := range created.Files {
-		for _, decl := range file.Decls {
-			genDecl, ok := decl.(*ast.GenDecl)
-			if !ok {
-				continue
-			}
-
-			doc := genDecl.Doc
-			if doc == nil {
-				continue
-			}
-
-			var isTypeVar bool
-			for _, c := range doc.List {
-				comment := strings.TrimSpace(c.Text[2:])
-				if strings.HasPrefix(comment, "+tsgen typevar") {
-					isTypeVar = true
-					break
-				}
-			}
-
-			if isTypeVar {
-				for _, spec := range genDecl.Specs {
-					t.Log(spec)
-				}
-			}
-		}
 	}
 
 	assert.True(t, gen.isTypeVariable(typeDefs["T"]))

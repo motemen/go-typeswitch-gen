@@ -124,7 +124,7 @@ func namedParamPos(name string, list *ast.FieldList) int {
 	return -1
 }
 
-func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
+func argTypesAt(nth int, edges []*callgraph.Edge) []types.Type {
 	inTypes := []types.Type{}
 
 	for _, edge := range edges {
@@ -133,7 +133,7 @@ func argTypesAt(pos int, edges []*callgraph.Edge) []types.Type {
 			continue
 		}
 
-		a := site.Common().Args[pos]
+		a := site.Common().Args[nth]
 		if mi, ok := a.(*ssa.MakeInterface); ok {
 			inTypes = append(inTypes, mi.X.Type())
 		}
