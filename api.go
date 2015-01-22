@@ -63,6 +63,7 @@ func (g *Gen) Sort() error {
 		return err
 	}
 
+	return g.doFiles(g.scaffoldFile)
 	return g.doFiles(g.sortFileTypeSwitches)
 }
 
@@ -172,27 +173,36 @@ func (g *Gen) expandFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) er
 				continue
 			}
 
-			target := typeSwitch.target()
-
 			g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
 
-			// TODO check target is an interface{}
+			/*
+				target := typeSwitch.target()
 
-			// XXX parentScope must be of a func
-			// scope := pkg.Scopes[sw]
-			// parentScope, _ := scope.LookupParent(target.Name)
-			// assert(pkg.Scopes[funcDecl.Type] == parentScope)
+				// TODO check target is an interface{}
 
-			// argument index of the variable which is target of the type switch
-			in, err := g.callGraphInEdges(funcDecl)
+				// XXX parentScope must be of a func
+				// scope := pkg.Scopes[sw]
+				// parentScope, _ := scope.LookupParent(target.Name)
+				// assert(pkg.Scopes[funcDecl.Type] == parentScope)
+
+				// argument index of the variable which is target of the type switch
+				in, err := g.callGraphInEdges(funcDecl)
+				if err != nil {
+					return err
+				}
+
+				paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
+				inTypes := argTypesAt(paramPos, in)
+			*/
+
+			inTypes, err := g.possibleSubjectTypes(pkg, funcDecl, typeSwitch)
 			if err != nil {
 				return err
 			}
 
-			paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
-			inTypes := argTypesAt(paramPos, in)
 			for _, inType := range inTypes {
-				g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
+				// g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
+				g.log(file, funcDecl, "argument type: %s", inType)
 			}
 
 			// Finally rewrite it
@@ -201,6 +211,34 @@ func (g *Gen) expandFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) er
 	}
 
 	return nil
+}
+
+func (g Gen) possibleSubjectTypes(pkg *loader.PackageInfo, funcDecl *ast.FuncDecl, typeSwitch *typeSwitchStmt) ([]types.Type, error) {
+	// XXX We can also obtain *loader.PackageInfo by:
+	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())
+
+	target := typeSwitch.target()
+	targetObj := pkg.Info.Uses[target] // The object where the type switch statement target is defined
+	// g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
+	if targetObj.Parent() != pkg.Scopes[funcDecl.Type] {
+		return nil, fmt.Errorf("BUG: scope mismatch")
+	}
+
+	// argument index of the variable which is target of the type switch
+	in, err := g.callGraphInEdges(funcDecl)
+	if err != nil {
+		return nil, err
+	}
+
+	paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
+	inTypes := argTypesAt(paramPos, in)
+	/*
+		for _, inType := range inTypes {
+			g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
+		}
+	*/
+
+	return inTypes, nil
 }
 
 func (g *Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
