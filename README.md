@@ -7,7 +7,13 @@ go-typeswitch-gen
 
 ## USAGE
 
-    tsgen [-w] [-main <pkg>] [-verbose] <file>
+    tsgen [-w] [-main <pkg>] [-verbose] <mode> <file>
+
+    Modes:
+      expand: expand generic case clauses in type switch statements by its actual arguments
+      sort:   sort case clauses in type switch statements
+
+    Flags:
       -main="": entrypoint package
       -verbose=false: log verbose
       -w=false: write result to (source) file instead of stdout
@@ -70,7 +76,7 @@ Types with names of uppercase letters and numbers are considered as type variabl
 Add lines below to expand type switches with `go generate`:
 
 ~~~go
-//go:generate tsgen -w $GOFILE
+//go:generate tsgen -w expand $GOFILE
 //go:generate goimports -w $GOFILE
 ~~~
 
