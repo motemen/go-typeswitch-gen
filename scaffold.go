@@ -2,9 +2,11 @@ package gen
 
 import (
 	"fmt"
+	"strings"
 
 	"go/ast"
 	"go/parser"
+	"go/token"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/types"
 )
@@ -45,13 +47,12 @@ func stubStmt() ast.Stmt {
 		return _stubStmt
 	}
 
-	e, err := parser.ParseExpr(`panic("TODO: stub")`)
+	e, err := parser.ParseExpr(`panic("not implemented")`)
 	if err != nil {
 		panic(err)
 	}
 
 	_stubStmt = &ast.ExprStmt{e}
-
 	return _stubStmt
 }
 
@@ -94,7 +95,16 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 			}
 			if !existing {
 				typeString, path := splitType(t)
-				_ = path // TODO add path to imports
+
+				// FIXME ad-hoc
+				if path == file.Name.Name {
+					s := strings.Index(typeString, "*") + 1
+					e := strings.Index(typeString, ".")
+					typeString = typeString[0:s] + typeString[e+1:]
+				} else {
+					addImport(file, path)
+				}
+
 				expr, err := parser.ParseExpr(typeString)
 				if err != nil {
 					panic(err)
@@ -110,6 +120,32 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 
 		return nil
 	})
+}
+
+// addImport modifies the ast.File file to add import path
+func addImport(file *ast.File, path string) {
+	if path == file.Name.Name {
+		// The import path just specifies the file itself
+		return
+	}
+
+	if file.Imports == nil {
+		file.Imports = []*ast.ImportSpec{}
+	}
+
+	for _, importSpec := range file.Imports {
+		if path == importSpec.Path.Value {
+			return
+		}
+	}
+
+	spec := &ast.ImportSpec{
+		Path: &ast.BasicLit{
+			Kind:  token.STRING,
+			Value: path,
+		},
+	}
+	file.Imports = append(file.Imports, spec)
 }
 
 // allNamed returns all named types declared or loaded inside
