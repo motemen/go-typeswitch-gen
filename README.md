@@ -10,8 +10,9 @@ go-typeswitch-gen
     tsgen [-w] [-main <pkg>] [-verbose] <mode> <file>
 
     Modes:
-      expand: expand generic case clauses in type switch statements by its actual arguments
-      sort:   sort case clauses in type switch statements
+      expand:   expand generic case clauses in type switch statements by its actual arguments
+      sort:     sort case clauses in type switch statements
+      scaffold: generate stub case clauses based on types that implement subject interface
 
     Flags:
       -main="": entrypoint package
