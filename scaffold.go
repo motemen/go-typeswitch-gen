@@ -3,6 +3,7 @@ package gen
 import (
 	"fmt"
 	"go/ast"
+	"go/parser"
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/types"
 )
@@ -36,6 +37,23 @@ func forTypeSwitchStmt(file *ast.File, proc func(*ast.FuncDecl, *ast.TypeSwitchS
 	return nil
 }
 
+var _stubStmt ast.Stmt
+
+func stubStmt() ast.Stmt {
+	if _stubStmt != nil {
+		return _stubStmt
+	}
+
+	e, err := parser.ParseExpr(`panic("TODO: stub")`)
+	if err != nil {
+		panic(err)
+	}
+
+	_stubStmt = &ast.ExprStmt{e}
+
+	return _stubStmt
+}
+
 func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 	return forTypeSwitchStmt(file, func(fd *ast.FuncDecl, sw *ast.TypeSwitchStmt) error {
 		stmt := newTypeSwitchStmt(file, sw, pkg.Info)
@@ -67,7 +85,6 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 		}
 
 		cases := stmt.caseTypes()
-		fmt.Printf("%#v", cases)
 
 		for _, t := range candTypes {
 			var existing bool
@@ -75,9 +92,23 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 				existing = existing || types.Identical(t, et)
 			}
 			if !existing {
-				// TODO
-				// stmt.addStubCaseClause(t)
-				fmt.Println("TODO", t)
+				typeString, path := splitType(t)
+				_ = path // TODO add path to imports
+				expr, err := parser.ParseExpr(typeString)
+				if err != nil {
+					panic(err)
+				}
+
+				panicStub, err := parser.ParseExpr(`panic("TODO: stub")`)
+				if err != nil {
+					panic(err)
+				}
+
+				newClause := &ast.CaseClause{
+					List: []ast.Expr{expr},
+					Body: []ast.Stmt{stubStmt()},
+				}
+				stmt.node.Body.List = append(stmt.node.Body.List, newClause)
 			}
 		}
 
