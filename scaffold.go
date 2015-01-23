@@ -2,6 +2,7 @@ package gen
 
 import (
 	"fmt"
+
 	"go/ast"
 	"go/parser"
 	"golang.org/x/tools/go/loader"
@@ -95,11 +96,6 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 				typeString, path := splitType(t)
 				_ = path // TODO add path to imports
 				expr, err := parser.ParseExpr(typeString)
-				if err != nil {
-					panic(err)
-				}
-
-				panicStub, err := parser.ParseExpr(`panic("TODO: stub")`)
 				if err != nil {
 					panic(err)
 				}

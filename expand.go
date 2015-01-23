@@ -10,26 +10,26 @@ import (
 
 // typeSwitchStmt represents a parsed type switch statement.
 type typeSwitchStmt struct {
-	file      *ast.File
-	node      *ast.TypeSwitchStmt
-	templates []template
-	info      types.Info
+	file *ast.File
+	node *ast.TypeSwitchStmt
+	info types.Info
 }
 
 // typeMatchResult is a type variable name to concrete type mapping
 type typeMatchResult map[string]types.Type
 
 func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
-	stmt := &typeSwitchStmt{
-		file:      file,
-		node:      st,
-		templates: []template{},
-		info:      info,
+	return &typeSwitchStmt{
+		file: file,
+		node: st,
+		info: info,
 	}
+}
 
-	// TODO delay preparation of templates as we use them in only
-	// "expand" mode.
-	for _, clause := range st.Body.List {
+func (stmt typeSwitchStmt) templates() []template {
+	templates := []template{}
+
+	for _, clause := range stmt.node.Body.List {
 		clause := clause.(*ast.CaseClause) // must not fail
 
 		if len(clause.List) != 1 { // XXX should/can we support multiple patterns?
@@ -37,22 +37,18 @@ func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) 
 		}
 
 		tmpl := template{
-			typePattern: info.TypeOf(clause.List[0]),
+			typePattern: stmt.info.TypeOf(clause.List[0]),
 			caseClause:  clause,
 		}
-		stmt.templates = append(stmt.templates, tmpl)
+		templates = append(templates, tmpl)
 	}
 
-	if len(stmt.templates) == 0 {
-		return nil
-	}
-
-	return stmt
+	return templates
 }
 
 // findMatchingTemplate finds the first matching template to the input type in and returns the template and a typeMatchResult.
 func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*template, typeMatchResult) {
-	for _, t := range stmt.templates {
+	for _, t := range stmt.templates() {
 		m := typeMatchResult{}
 		if gen.typeMatches(stmt, t.typePattern, in, m) {
 			return &t, m
