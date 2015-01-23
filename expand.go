@@ -13,6 +13,7 @@ type typeSwitchStmt struct {
 	file      *ast.File
 	node      *ast.TypeSwitchStmt
 	templates []template
+	info      types.Info
 }
 
 // typeMatchResult is a type variable name to concrete type mapping
@@ -23,8 +24,11 @@ func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) 
 		file:      file,
 		node:      st,
 		templates: []template{},
+		info:      info,
 	}
 
+	// TODO delay preparation of templates as we use them in only
+	// "expand" mode.
 	for _, clause := range st.Body.List {
 		clause := clause.(*ast.CaseClause) // must not fail
 
@@ -86,10 +90,29 @@ func (gen Gen) expand(stmt *typeSwitchStmt, ins []types.Type) *ast.TypeSwitchStm
 	return node
 }
 
-// target returns the variable ast.Ident of interest of type-switch.
+// subject returns the variable ast.Ident of interest of type-switch.
 // TODO: support other forms than `switch y := x.(type)`, otherwise panics
-func (stmt typeSwitchStmt) target() *ast.Ident {
+func (stmt typeSwitchStmt) subject() *ast.Ident {
 	return stmt.node.Assign.(*ast.AssignStmt).Rhs[0].(*ast.TypeAssertExpr).X.(*ast.Ident)
+}
+
+// caseTypes returns the map to clauses from their type cases.
+func (stmt typeSwitchStmt) caseTypes() map[types.Type]*ast.CaseClause {
+	cases := map[types.Type]*ast.CaseClause{}
+	for _, cc := range stmt.node.Body.List {
+		cc := cc.(*ast.CaseClause) // should not fail
+		if cc.List == nil {        // the "default" case
+			cases[nil] = cc
+			continue
+		}
+
+		for _, e := range cc.List {
+			t := stmt.info.TypeOf(e)
+			cases[t] = cc
+		}
+	}
+
+	return cases
 }
 
 // template represents a clause template.

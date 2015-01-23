@@ -109,6 +109,10 @@ func main() {
 	case "sort":
 		err := doSort(g, target)
 		dieIf(err)
+
+	case "scaffold":
+		err := doScaffold(g, target)
+		dieIf(err)
 	}
 }
 
@@ -137,6 +141,14 @@ func doSort(g *gen.Gen, target string) error {
 	}
 
 	return g.Sort()
+}
+
+func doScaffold(g *gen.Gen, target string) error {
+	if err := g.Loader.CreateFromFilenames("", target); err != nil {
+		return err
+	}
+
+	return g.Scaffold()
 }
 
 func listSiblingFiles(filename string) ([]string, error) {

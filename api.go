@@ -63,8 +63,17 @@ func (g *Gen) Sort() error {
 		return err
 	}
 
-	return g.doFiles(g.scaffoldFile)
 	return g.doFiles(g.sortFileTypeSwitches)
+}
+
+// Scaffold fills type switches with empty case clauses using their subjects type.
+func (g Gen) Scaffold() error {
+	err := g.load()
+	if err != nil {
+		return err
+	}
+
+	return g.doFiles(g.scaffoldFile)
 }
 
 // load loads the program.
@@ -217,20 +226,20 @@ func (g Gen) possibleSubjectTypes(pkg *loader.PackageInfo, funcDecl *ast.FuncDec
 	// XXX We can also obtain *loader.PackageInfo by:
 	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())
 
-	target := typeSwitch.target()
-	targetObj := pkg.Info.Uses[target] // The object where the type switch statement target is defined
+	subject := typeSwitch.subject()
+	subjectObj := pkg.Info.Uses[subject] // Where the type switch statement subject is defined
 	// g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
-	if targetObj.Parent() != pkg.Scopes[funcDecl.Type] {
+	if subjectObj.Parent() != pkg.Scopes[funcDecl.Type] {
 		return nil, fmt.Errorf("BUG: scope mismatch")
 	}
 
-	// argument index of the variable which is target of the type switch
+	// argument index of the variable which is subject of the type switch
 	in, err := g.callGraphInEdges(funcDecl)
 	if err != nil {
 		return nil, err
 	}
 
-	paramPos := namedParamPos(target.Name, funcDecl.Type.Params)
+	paramPos := namedParamPos(subject.Name, funcDecl.Type.Params)
 	inTypes := argTypesAt(paramPos, in)
 	/*
 		for _, inType := range inTypes {
