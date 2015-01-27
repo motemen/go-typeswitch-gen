@@ -32,7 +32,7 @@ func (s byTypeName) Less(i, j int) bool {
 }
 
 // Sort case clauses by popularity (most polular to less)
-func (g *Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopularity {
+func (g Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopularity {
 	// First rank interfaces by their ocurrances
 	caseTypes := map[types.Type]bool{}
 
@@ -76,7 +76,7 @@ func (g *Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopulari
 	return byInterfacePopularity{
 		list:       list,
 		interfaces: interfaceOrder,
-		gen:        g,
+		gen:        &g,
 		info:       info,
 	}
 }

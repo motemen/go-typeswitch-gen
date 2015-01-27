@@ -6,6 +6,8 @@ import (
 
 	"go/ast"
 	"golang.org/x/tools/go/types"
+
+	"github.com/motemen/go-astutil"
 )
 
 // typeSwitchStmt represents a parsed type switch statement.
@@ -17,14 +19,6 @@ type typeSwitchStmt struct {
 
 // typeMatchResult is a type variable name to concrete type mapping
 type typeMatchResult map[string]types.Type
-
-func newTypeSwitchStmt(file *ast.File, st *ast.TypeSwitchStmt, info types.Info) *typeSwitchStmt {
-	return &typeSwitchStmt{
-		file: file,
-		node: st,
-		info: info,
-	}
-}
 
 func (stmt typeSwitchStmt) templates() []template {
 	templates := []template{}
@@ -60,7 +54,7 @@ func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*templ
 
 // expand generates a type switch statement with expanded clauses for input types ins.
 func (gen Gen) expand(stmt *typeSwitchStmt, ins []types.Type) *ast.TypeSwitchStmt {
-	node := copyNode(stmt.node).(*ast.TypeSwitchStmt)
+	node := astutil.CopyNode(stmt.node).(*ast.TypeSwitchStmt)
 	seen := map[string]bool{}
 	for _, in := range ins {
 		if seen[in.String()] {
@@ -254,7 +248,7 @@ func (gen Gen) typeMatches(stmt *typeSwitchStmt, pat, in types.Type, m typeMatch
 
 // apply applies typeMatchResult m to the template's caseClause and fills the type variables to specific types.
 func (t *template) apply(m typeMatchResult) *ast.CaseClause {
-	newClause := copyNode(t.caseClause).(*ast.CaseClause)
+	newClause := astutil.CopyNode(t.caseClause).(*ast.CaseClause)
 	ast.Inspect(newClause, func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
 			if r, ok := m[ident.Name]; ok {

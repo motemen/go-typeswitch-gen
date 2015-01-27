@@ -40,27 +40,30 @@ func forTypeSwitchStmt(file *ast.File, proc func(*ast.FuncDecl, *ast.TypeSwitchS
 	return nil
 }
 
-var _stubStmt ast.Stmt
+var stubStmt ast.Stmt
 
-func stubStmt() ast.Stmt {
-	if _stubStmt != nil {
-		return _stubStmt
-	}
-
+func init() {
 	e, err := parser.ParseExpr(`panic("not implemented")`)
 	if err != nil {
 		panic(err)
 	}
 
-	_stubStmt = &ast.ExprStmt{e}
-	return _stubStmt
+	ce := e.(*ast.CallExpr)
+	ce.Lparen = token.NoPos
+	ce.Rparen = token.NoPos
+
+	stubStmt = &ast.ExprStmt{ce}
 }
 
-func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
+func (g Gen) scaffoldFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
 	return forTypeSwitchStmt(file, func(fd *ast.FuncDecl, sw *ast.TypeSwitchStmt) error {
-		stmt := newTypeSwitchStmt(file, sw, pkg.Info)
+		typeSwitch := &typeSwitchStmt{
+			file: file,
+			node: sw,
+			info: pkg.Info,
+		}
 
-		subjType := pkg.Info.TypeOf(stmt.subject())
+		subjType := pkg.Info.TypeOf(typeSwitch.subject())
 		subjIf, ok := subjType.Underlying().(*types.Interface)
 		if !ok {
 			return fmt.Errorf("not an interface type: %v", subjType)
@@ -86,7 +89,7 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 			}
 		}
 
-		cases := stmt.caseTypes()
+		cases := typeSwitch.caseTypes()
 
 		for _, t := range candTypes {
 			var existing bool
@@ -112,9 +115,9 @@ func (g Gen) scaffoldFile(pkg *loader.PackageInfo, file *ast.File) error {
 
 				newClause := &ast.CaseClause{
 					List: []ast.Expr{expr},
-					Body: []ast.Stmt{stubStmt()},
+					Body: []ast.Stmt{stubStmt},
 				}
-				stmt.node.Body.List = append(stmt.node.Body.List, newClause)
+				typeSwitch.node.Body.List = append(typeSwitch.node.Body.List, newClause)
 			}
 		}
 
@@ -148,7 +151,7 @@ func addImport(file *ast.File, path string) {
 	file.Imports = append(file.Imports, spec)
 }
 
-// allNamed returns all named types declared or loaded inside
+// allNamedTypes returns all named types declared or loaded inside
 // the program, plus built-in error type.
 // (as oracle tool does)
 func (g Gen) allNamedTypes() []types.Type {
