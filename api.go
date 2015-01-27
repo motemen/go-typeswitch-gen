@@ -6,7 +6,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"sort"
 
 	"go/ast"
 	"go/format"
@@ -223,20 +222,6 @@ func (g Gen) possibleSubjectTypes(pkg *loader.PackageInfo, funcDecl *ast.FuncDec
 	}
 
 	return argTypesAt(paramPos, in), nil
-}
-
-func (g Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
-	ast.Inspect(file, func(n ast.Node) bool {
-		if stmt, ok := n.(*ast.TypeSwitchStmt); ok {
-			sort.Sort(g.byInterface(stmt.Body.List, &pkg.Info))
-			// sort.Sort(byName{stmt.Body.List, g})
-			return false
-		}
-
-		return true
-	})
-
-	return nil
 }
 
 func (g Gen) mainPkg() (*loader.PackageInfo, error) {

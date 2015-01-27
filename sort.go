@@ -4,8 +4,34 @@ import (
 	"sort"
 
 	"go/ast"
+	"go/token"
+	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/types"
 )
+
+func (g Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
+	ast.Inspect(file, func(n ast.Node) bool {
+		if stmt, ok := n.(*ast.TypeSwitchStmt); ok {
+			sort.Sort(g.byInterface(stmt.Body.List, &pkg.Info))
+			// sort.Sort(byName{stmt.Body.List, g})
+
+			// Remove empty lines between cases
+			// as sorting cases will break the spacing.
+			for _, st := range stmt.Body.List {
+				if cc, ok := st.(*ast.CaseClause); ok {
+					cc.Case = token.NoPos
+					cc.Colon = token.NoPos
+				}
+			}
+
+			return false
+		}
+
+		return true
+	})
+
+	return nil
+}
 
 type byTypeName struct {
 	list []ast.Stmt
