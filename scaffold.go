@@ -164,6 +164,9 @@ func (g Gen) allNamedTypes() []types.Type {
 
 	for _, info := range g.program.AllPackages {
 		for _, obj := range info.Defs {
+			if obj != nil && !obj.Exported() {
+				continue
+			}
 			if tn, ok := obj.(*types.TypeName); ok {
 				all = append(all, tn.Type())
 			}
