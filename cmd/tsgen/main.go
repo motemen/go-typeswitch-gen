@@ -137,7 +137,12 @@ func doExpand(g *gen.Gen, target, main string) error {
 }
 
 func doSort(g *gen.Gen, target string) error {
-	if err := g.Loader.CreateFromFilenames("", target); err != nil {
+	filenames, err := listSiblingFiles(target)
+	if err != nil {
+		return err
+	}
+
+	if err := g.Loader.CreateFromFilenames("", filenames...); err != nil {
 		return err
 	}
 
@@ -145,7 +150,12 @@ func doSort(g *gen.Gen, target string) error {
 }
 
 func doScaffold(g *gen.Gen, target string) error {
-	if err := g.Loader.CreateFromFilenames("", target); err != nil {
+	filenames, err := listSiblingFiles(target)
+	if err != nil {
+		return err
+	}
+
+	if err := g.Loader.CreateFromFilenames("", filenames...); err != nil {
 		return err
 	}
 
