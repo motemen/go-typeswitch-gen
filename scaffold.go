@@ -11,50 +11,11 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
-func forTypeSwitchStmt(file *ast.File, proc func(*ast.FuncDecl, *ast.TypeSwitchStmt) error) error {
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		if funcDecl.Body == nil {
-			// Maybe an object-provided function and we have no source information
-			continue
-		}
-
-		// For each type switch statements...
-		for _, stmt := range funcDecl.Body.List {
-			sw, ok := stmt.(*ast.TypeSwitchStmt)
-			if !ok {
-				continue
-			}
-
-			err := proc(funcDecl, sw)
-			if err != nil {
-				return err
-			}
-		}
-	}
-
-	return nil
-}
-
-var stubStmt ast.Stmt
-
-func init() {
-	e, err := parser.ParseExpr(`panic("not implemented")`)
-	if err != nil {
-		panic(err)
-	}
-
-	ce := e.(*ast.CallExpr)
-	ce.Lparen = token.NoPos
-	ce.Rparen = token.NoPos
-
-	stubStmt = &ast.ExprStmt{ce}
-}
-
+// scaffoldFileTypeSwitches is the main logic for "scaffold" mode.
+// It fills type switch statements in file with case clauses of concrete types
+// which implements the subject interface of type switches.
+// Rewrites type switches in file.
+// TODO: support interface{} type, analyzing call graphs
 func (g Gen) scaffoldFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
 	return forTypeSwitchStmt(file, func(fd *ast.FuncDecl, sw *ast.TypeSwitchStmt) error {
 		typeSwitch := &typeSwitchStmt{
@@ -123,6 +84,50 @@ func (g Gen) scaffoldFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) e
 
 		return nil
 	})
+}
+
+func forTypeSwitchStmt(file *ast.File, proc func(*ast.FuncDecl, *ast.TypeSwitchStmt) error) error {
+	for _, decl := range file.Decls {
+		funcDecl, ok := decl.(*ast.FuncDecl)
+		if !ok {
+			continue
+		}
+
+		if funcDecl.Body == nil {
+			// Maybe an object-provided function and we have no source information
+			continue
+		}
+
+		// For each type switch statements...
+		for _, stmt := range funcDecl.Body.List {
+			sw, ok := stmt.(*ast.TypeSwitchStmt)
+			if !ok {
+				continue
+			}
+
+			err := proc(funcDecl, sw)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
+}
+
+var stubStmt ast.Stmt
+
+func init() {
+	e, err := parser.ParseExpr(`panic("not implemented")`)
+	if err != nil {
+		panic(err)
+	}
+
+	ce := e.(*ast.CallExpr)
+	ce.Lparen = token.NoPos
+	ce.Rparen = token.NoPos
+
+	stubStmt = &ast.ExprStmt{ce}
 }
 
 // addImport modifies the ast.File file to add import path

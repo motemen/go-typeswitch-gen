@@ -151,57 +151,6 @@ func argTypesAt(nth int, edges []*callgraph.Edge) []types.Type {
 	return inTypes
 }
 
-// expandFileTypeSwitches is the main logic for "expand" mode.
-// May rewrite type switch statements in *ast.File file.
-func (g Gen) expandFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
-	// XXX We can also obtain *loader.PackageInfo by:
-	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())
-	for _, decl := range file.Decls {
-		funcDecl, ok := decl.(*ast.FuncDecl)
-		if !ok {
-			continue
-		}
-
-		if funcDecl.Body == nil {
-			// Maybe an object-provided function and we have no source information
-			continue
-		}
-
-		// For each type switch statements...
-		for _, stmt := range funcDecl.Body.List {
-			sw, ok := stmt.(*ast.TypeSwitchStmt)
-			if !ok {
-				continue
-			}
-
-			g.log(file, sw, "type switch statement: %s", sw.Assign)
-
-			typeSwitch := &typeSwitchStmt{
-				file: file,
-				node: sw,
-				info: pkg.Info,
-			}
-
-			g.log(file, funcDecl, "enclosing func: %s", funcDecl.Type)
-
-			inTypes, err := g.possibleSubjectTypes(pkg, funcDecl, typeSwitch)
-			if err != nil {
-				return err
-			}
-
-			for _, inType := range inTypes {
-				// g.log(file, funcDecl, "argument type: %s (from %s)", inType, in[0].Caller.Func)
-				g.log(file, funcDecl, "argument type: %s", inType)
-			}
-
-			// Finally rewrite it
-			*sw = *g.expand(typeSwitch, inTypes)
-		}
-	}
-
-	return nil
-}
-
 func (g Gen) possibleSubjectTypes(pkg *loader.PackageInfo, funcDecl *ast.FuncDecl, typeSwitch *typeSwitchStmt) ([]types.Type, error) {
 	// XXX We can also obtain *loader.PackageInfo by:
 	// pkg, _, _ := g.program.PathEnclosingInterval(file.Pos(), file.End())

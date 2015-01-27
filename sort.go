@@ -9,6 +9,15 @@ import (
 	"golang.org/x/tools/go/types"
 )
 
+// sortFileTypeSwitches is the main logic for "sort" mode.
+// It sorts the case clauses in type switch statements in file by the popularity of
+// the interfaces implemented by the case types.
+// Cases with type which implements more popular interfaces are sorted first, for example:
+//   case A: // implements I1
+//   case B: // implements I2
+//   case C: // implements I1, I2
+//   case D: // implements I2
+// Will be sorted as C, B, D, A, as I2 is more popular than I1.
 func (g Gen) sortFileTypeSwitches(pkg *loader.PackageInfo, file *ast.File) error {
 	ast.Inspect(file, func(n ast.Node) bool {
 		if stmt, ok := n.(*ast.TypeSwitchStmt); ok {
