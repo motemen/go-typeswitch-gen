@@ -322,6 +322,11 @@ func (g Gen) log(file *ast.File, node ast.Node, pattern string, args ...interfac
 		return
 	}
 
+	if file == nil && node == nil {
+		fmt.Fprintf(os.Stderr, pattern+"\n", args...)
+		return
+	}
+
 	pos := g.tokenFile(file).Position(node.Pos())
 
 	for i, a := range args {

@@ -48,21 +48,23 @@ func (g Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopularit
 	}
 
 	// Count all interfaces' implementation counts
-	implCounts := map[*types.Interface]int{}
+	implCounts := map[types.Type]int{}
 	for _, info := range g.program.AllPackages {
 		for _, obj := range info.Defs {
 			if tn, ok := obj.(*types.TypeName); ok {
-				if i, ok := tn.Type().Underlying().(*types.Interface); ok {
-					implCounts[i] = 0
+				t := tn.Type()
+				if _, ok := t.Underlying().(*types.Interface); ok {
+					implCounts[t] = 0
 				}
 			}
 		}
 	}
 
-	interfaceOrder := []*types.Interface{}
+	interfaceOrder := []types.Type{}
 	for i := range implCounts {
 		for t := range caseTypes {
-			if types.Implements(t, i) {
+			in := i.Underlying().(*types.Interface)
+			if types.Implements(t, in) {
 				implCounts[i] = implCounts[i] + 1
 			}
 		}
@@ -73,6 +75,8 @@ func (g Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopularit
 
 	sort.Sort(byImplCount{interfaceOrder, implCounts})
 
+	g.log(nil, nil, "%v", interfaceOrder)
+
 	return byInterfacePopularity{
 		list:       list,
 		interfaces: interfaceOrder,
@@ -82,8 +86,8 @@ func (g Gen) byInterface(list []ast.Stmt, info *types.Info) byInterfacePopularit
 }
 
 type byImplCount struct {
-	interfaces []*types.Interface
-	count      map[*types.Interface]int
+	interfaces []types.Type
+	count      map[types.Type]int
 }
 
 func (s byImplCount) Len() int { return len(s.interfaces) }
@@ -91,12 +95,18 @@ func (s byImplCount) Swap(i, j int) {
 	s.interfaces[i], s.interfaces[j] = s.interfaces[j], s.interfaces[i]
 }
 func (s byImplCount) Less(i, j int) bool {
-	return s.count[s.interfaces[i]] > s.count[s.interfaces[j]]
+	i1, i2 := s.interfaces[i], s.interfaces[j]
+
+	if s.count[i1] == s.count[i2] {
+		return i1.String() < i2.String()
+	}
+
+	return s.count[i1] > s.count[i2]
 }
 
 type byInterfacePopularity struct {
 	list       []ast.Stmt
-	interfaces []*types.Interface
+	interfaces []types.Type
 	gen        *Gen
 	info       *types.Info
 }
@@ -120,9 +130,13 @@ func (s byInterfacePopularity) Less(i, j int) bool {
 	t1, t2 := s.info.TypeOf(e1), s.info.TypeOf(e2)
 
 	for _, in := range s.interfaces {
-		impl1 := types.Implements(t1, in)
-		impl2 := types.Implements(t2, in)
+		impl1 := types.Implements(t1, in.Underlying().(*types.Interface))
+		impl2 := types.Implements(t2, in.Underlying().(*types.Interface))
+
 		if impl1 != impl2 {
+			s.gen.log(nil, nil, "%s implements %s = %v", t1, in, impl1)
+			s.gen.log(nil, nil, "%s implements %s = %v", t2, in, impl2)
+
 			return impl1
 		}
 	}
