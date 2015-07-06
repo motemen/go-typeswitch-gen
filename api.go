@@ -39,7 +39,6 @@ type Gen struct {
 // New creates a Gen with some initial configuration.
 func New() *Gen {
 	g := &Gen{}
-	g.Loader.SourceImports = true
 	g.Loader.ParserMode = parser.ParseComments
 	return g
 }
@@ -89,7 +88,7 @@ func (g *Gen) buildSSA() error {
 	}
 
 	mode := ssa.SanityCheckFunctions
-	g.ssaProgram = ssa.Create(g.program, mode)
+	g.ssaProgram = ssa.NewProgram(g.program.Fset, mode) // FIXME not sure
 	g.ssaProgram.BuildAll()
 
 	return nil

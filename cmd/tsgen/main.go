@@ -124,10 +124,7 @@ func doExpand(g *gen.Gen, target, main string) error {
 			return err
 		}
 
-		err = g.Loader.CreateFromFilenames("", filenames...)
-		if err != nil {
-			return err
-		}
+		g.Loader.CreateFromFilenames("", filenames...)
 	} else {
 		g.Loader.Import(main)
 		g.Main = main
@@ -142,9 +139,7 @@ func doSort(g *gen.Gen, target string) error {
 		return err
 	}
 
-	if err := g.Loader.CreateFromFilenames("", filenames...); err != nil {
-		return err
-	}
+	g.Loader.CreateFromFilenames("", filenames...)
 
 	return g.Sort()
 }
@@ -155,9 +150,7 @@ func doScaffold(g *gen.Gen, target string) error {
 		return err
 	}
 
-	if err := g.Loader.CreateFromFilenames("", filenames...); err != nil {
-		return err
-	}
+	g.Loader.CreateFromFilenames("", filenames...)
 
 	return g.Scaffold()
 }
