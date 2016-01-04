@@ -89,7 +89,7 @@ func (g *Gen) buildSSA() error {
 
 	mode := ssa.SanityCheckFunctions
 	g.ssaProgram = ssa.NewProgram(g.program.Fset, mode) // FIXME not sure
-	g.ssaProgram.BuildAll()
+	g.ssaProgram.Build()
 
 	return nil
 }

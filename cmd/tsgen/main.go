@@ -150,6 +150,7 @@ func doScaffold(g *gen.Gen, target string) error {
 		return err
 	}
 
+	g.Loader.AllowErrors = true
 	g.Loader.CreateFromFilenames("", filenames...)
 
 	return g.Scaffold()
