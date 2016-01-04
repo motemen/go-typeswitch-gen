@@ -8,7 +8,7 @@ import (
 	"golang.org/x/tools/go/loader"
 	"golang.org/x/tools/go/types"
 
-	"github.com/motemen/go-astutil"
+	"github.com/motemen/go-astmanip"
 )
 
 // expandFileTypeSwitches is the main logic for "expand" mode.
@@ -106,7 +106,7 @@ func (gen Gen) findMatchingTemplate(stmt *typeSwitchStmt, in types.Type) (*templ
 
 // expand generates a type switch statement with expanded clauses for input types ins.
 func (gen Gen) expand(stmt *typeSwitchStmt, ins []types.Type) *ast.TypeSwitchStmt {
-	node := astutil.CopyNode(stmt.node).(*ast.TypeSwitchStmt)
+	node := astmanip.CopyNode(stmt.node).(*ast.TypeSwitchStmt)
 	seen := map[string]bool{}
 	for _, in := range ins {
 		if seen[in.String()] {
@@ -300,7 +300,7 @@ func (gen Gen) typeMatches(stmt *typeSwitchStmt, pat, in types.Type, m typeMatch
 
 // apply applies typeMatchResult m to the template's caseClause and fills the type variables to specific types.
 func (t *template) apply(m typeMatchResult) *ast.CaseClause {
-	newClause := astutil.CopyNode(t.caseClause).(*ast.CaseClause)
+	newClause := astmanip.CopyNode(t.caseClause).(*ast.CaseClause)
 	ast.Inspect(newClause, func(node ast.Node) bool {
 		if ident, ok := node.(*ast.Ident); ok {
 			if r, ok := m[ident.Name]; ok {
